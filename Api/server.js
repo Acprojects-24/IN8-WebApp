@@ -69,33 +69,138 @@ app.use(
     origin: function (origin, callback) {
       // Allow requests with no origin (like mobile apps or curl requests)
       if (!origin) return callback(null, true);
-      
+
       // For development, allow localhost on any port with HTTP or HTTPS
       if (origin && (origin.startsWith('http://localhost:') || origin.startsWith('https://localhost:'))) {
         return callback(null, true);
       }
-      
+
       // Allow specific origins
       const allowedOrigins = [
-        'http://localhost:5173', 
+        'http://localhost:5173',
         'https://localhost:5173',
         'http://localhost:5174',
         'https://localhost:5174'
       ];
-      
+
       if (allowedOrigins.indexOf(origin) !== -1) {
         return callback(null, true);
       }
-      
+
       console.log('CORS blocked origin:', origin);
       return callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Admin-Secret'],
     optionsSuccessStatus: 200 // For legacy browser support
   })
 );
+
+// Note: Preflight requests will be handled by the global CORS middleware above
+
+// Admin auth middleware
+const ADMIN_SECRET = process.env.ADMIN_SECRET || process.env.ADMIN_API_KEY;
+
+async function requireAdmin(req, res, next) {
+  try {
+    // Allow preflight
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+
+    // 1) Header secret (server-to-server) - ADMIN SECRET ONLY
+    const headerSecret = req.header('x-admin-secret') || req.header('X-Admin-Secret');
+    if (ADMIN_SECRET && headerSecret && headerSecret === ADMIN_SECRET) {
+      console.log('Admin access via X-Admin-Secret');
+      return next();
+    }
+
+    // 2) Bearer token - MUST be from an ADMIN user
+    const authHeader = req.header('authorization') || req.header('Authorization') || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) {
+      return res.status(401).json({ 
+        success: false, 
+        data: null, 
+        error: { message: 'Admin access required. Provide X-Admin-Secret header or admin bearer token.' } 
+      });
+    }
+
+    // Verify token with Supabase
+    const { data: userData, error: userErr } = await supabase.auth.getUser(token);
+    if (userErr || !userData?.user?.id) {
+      return res.status(401).json({ 
+        success: false, 
+        data: null, 
+        error: { message: 'Invalid or expired token' } 
+      });
+    }
+
+    const userId = userData.user.id;
+    
+    // CRITICAL: Check user role in database
+    const { data: profile, error: profErr } = await supabase
+      .from('users')
+      .select('role, is_active, email')
+      .eq('uid', userId)
+      .maybeSingle();
+
+    if (profErr) {
+      console.error('Profile lookup error:', profErr);
+      return res.status(500).json({ 
+        success: false, 
+        data: null, 
+        error: { message: 'Failed to verify user permissions' } 
+      });
+    }
+
+    if (!profile) {
+      return res.status(403).json({ 
+        success: false, 
+        data: null, 
+        error: { message: 'User profile not found' } 
+      });
+    }
+
+    const role = (profile.role || '').toString().toLowerCase();
+    const isActive = profile.is_active !== false; // default true
+    const email = profile.email || userData.user.email || '';
+
+    // Log access attempt for security
+    console.log(`Admin endpoint access attempt: ${email} (role: ${role}, active: ${isActive})`);
+
+    // STRICT: Only admin and superadmin roles allowed
+    if (!isActive) {
+      return res.status(403).json({ 
+        success: false, 
+        data: null, 
+        error: { message: 'Account is disabled' } 
+      });
+    }
+
+    if (role !== 'admin' && role !== 'superadmin') {
+      console.warn(`SECURITY: Non-admin user ${email} attempted admin endpoint access`);
+      return res.status(403).json({ 
+        success: false, 
+        data: null, 
+        error: { message: 'Admin privileges required. Contact your administrator.' } 
+      });
+    }
+
+    // Success - attach user info for logging
+    req.user = userData.user;
+    req.userProfile = profile;
+    console.log(`Admin access granted: ${email} (${role})`);
+    return next();
+    
+  } catch (e) {
+    console.error('Admin auth error:', e);
+    return res.status(500).json({ 
+      success: false, 
+      data: null, 
+      error: { message: 'Authentication service error' } 
+    });
+  }
+}
 
 // Helpers for uniform JSON responses
 function sendSuccess(res, data, statusCode = 200) {
@@ -114,7 +219,7 @@ app.get('/health', (req, res) => {
 });
 
 // GET /dashboard/stats → get dashboard statistics
-app.get('/dashboard/stats', async (req, res) => {
+app.get('/dashboard/stats', requireAdmin, async (req, res) => {
   try {
     // Get total users count
     const { count: totalUsers, error: totalUsersError } = await supabase
@@ -169,7 +274,7 @@ app.get('/dashboard/stats', async (req, res) => {
 });
 
 // GET /users → get all users with pagination
-app.get('/users', async (req, res) => {
+app.get('/users', requireAdmin, async (req, res) => {
   try {
     const { page = 1, limit = 10, active } = req.query;
     const from = (page - 1) * limit;
@@ -207,7 +312,7 @@ app.get('/users', async (req, res) => {
 });
 
 // GET /meetings → get all meetings with pagination
-app.get('/meetings', async (req, res) => {
+app.get('/meetings', requireAdmin, async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;
     const from = (page - 1) * limit;
@@ -239,7 +344,7 @@ app.get('/meetings', async (req, res) => {
 
 // POST /users → create a new user
 // Body: { email, password, first_name, last_name }
-app.post('/users', async (req, res) => {
+app.post('/users', requireAdmin, async (req, res) => {
   try {
     const { email, password, first_name, last_name } = req.body || {};
 
@@ -298,12 +403,12 @@ app.post('/users', async (req, res) => {
 
 // PUT /users/:id → update email/password/metadata in auth and sync in users table
 // Body can include any subset of: { email, password, first_name, last_name }
-app.put('/users/:id', async (req, res) => {
+app.put('/users/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const { email, password, first_name, last_name } = req.body || {};
+    const { email, password, first_name, last_name, role } = req.body || {};
 
-    if (!email && !password && first_name === undefined && last_name === undefined) {
+    if (!email && !password && first_name === undefined && last_name === undefined && role === undefined) {
       return sendError(res, 'No fields to update', 400);
     }
 
@@ -337,6 +442,7 @@ app.put('/users/:id', async (req, res) => {
     if (email !== undefined) profileUpdate.email = email;
     if (first_name !== undefined) profileUpdate.first_name = first_name;
     if (last_name !== undefined) profileUpdate.last_name = last_name;
+    if (role !== undefined) profileUpdate.role = role;
 
     let profile = null;
     if (Object.keys(profileUpdate).length > 0) {
@@ -367,7 +473,7 @@ app.put('/users/:id', async (req, res) => {
 });
 
 // PATCH /users/:id/enable → set is_active=true in users table
-app.patch('/users/:id/enable', async (req, res) => {
+app.patch('/users/:id/enable', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { data, error } = await supabase
@@ -392,7 +498,7 @@ app.patch('/users/:id/enable', async (req, res) => {
 });
 
 // PATCH /users/:id/disable → set is_active=false in users table
-app.patch('/users/:id/disable', async (req, res) => {
+app.patch('/users/:id/disable', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { data, error } = await supabase
@@ -417,7 +523,7 @@ app.patch('/users/:id/disable', async (req, res) => {
 });
 
 // DELETE /users/:id → delete user from both auth and users table
-app.delete('/users/:id', async (req, res) => {
+app.delete('/users/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 

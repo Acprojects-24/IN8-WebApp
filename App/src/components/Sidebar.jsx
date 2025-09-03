@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import MyLogo from '../assets/logo.png'; 
 import Toast from './Toast'; // <-- Yahan Toast component import kiya gaya hai
+import { fullClientLogout } from '../utils/logout';
+import { supabase } from '../supabase';
 
 const SidebarLink = ({ icon: Icon, text, active, onClick, to }) => (
     <Link 
@@ -109,25 +111,16 @@ export default function Sidebar({ isOpen, setIsOpen, activeLink, setActiveLink, 
         setActiveToast({ id: Date.now(), ...toastData });
     };
 
-    const handleLogout = () => {
-        // Local storage se user data clear karein
-        localStorage.removeItem('authToken');
-        localStorage.removeItem('userName');
-        localStorage.removeItem('userEmail');
-
-        // Success toast dikhayein with a specific duration
-        const toastDuration = 1500; // 1.5 seconds
+    const handleLogout = async () => {
+        await fullClientLogout(() => supabase.auth.signOut());
+        const toastDuration = 1500;
         showToast({ 
             title: 'Logout Successful', 
             message: 'You have been successfully logged out.', 
             type: 'success',
             duration: toastDuration 
         });
-
-        // Toast ke duration ke baad hi navigate karein
-        setTimeout(() => {
-            navigate('/');
-        }, toastDuration);
+        setTimeout(() => { navigate('/'); }, toastDuration);
     };
 
     return (

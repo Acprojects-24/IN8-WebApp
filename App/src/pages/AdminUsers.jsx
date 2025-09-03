@@ -90,7 +90,17 @@ const AdminUsers = () => {
     // Try Express API first
     try {
       const API_BASE_URL = 'http://localhost:4000';
-      const response = await fetch(`${API_BASE_URL}/users`);
+      
+      // Get admin token
+      const { data: session } = await supabase.auth.getSession();
+      const token = session?.session?.access_token;
+      
+      const response = await fetch(`${API_BASE_URL}/users`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      
       if (response.ok) {
         const result = await response.json();
         if (result.success && result.data?.users) {
@@ -134,15 +144,21 @@ const AdminUsers = () => {
     let ok = false;
     try {
       const API_BASE_URL = 'http://localhost:4000';
+      
+      // Get admin token
+      const { data: session } = await supabase.auth.getSession();
+      const token = session?.session?.access_token;
+      
       const response = await fetch(`${API_BASE_URL}/users/${editingUid}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
           first_name: form.first_name,
           last_name: form.last_name,
-          // Note: role updates might need special handling
+          role: form.role,
         }),
       });
       if (response.ok) {
@@ -201,7 +217,13 @@ const AdminUsers = () => {
     try {
       // Call Express API instead of Edge Function
       const API_BASE_URL = 'http://localhost:4000';
+      
+      // Get admin token
+      const { data: session } = await supabase.auth.getSession();
+      const token = session?.session?.access_token;
+      
       console.log('Calling API:', `${API_BASE_URL}/users`);
+      console.log('Using token:', token ? 'Yes' : 'No');
       console.log('Request body:', {
         email: fn.email,
         password: fn.password,
@@ -213,6 +235,7 @@ const AdminUsers = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
           email: fn.email,
@@ -596,8 +619,16 @@ const AdminUsers = () => {
           // Try Express API first
           try {
             const API_BASE_URL = 'http://localhost:4000';
+            
+            // Get admin token
+            const { data: session } = await supabase.auth.getSession();
+            const token = session?.session?.access_token;
+            
             const response = await fetch(`${API_BASE_URL}/users/${u.uid}/disable`, {
               method: 'PATCH',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+              },
             });
             if (response.ok) {
               const result = await response.json();
@@ -628,8 +659,16 @@ const AdminUsers = () => {
           // Try Express API first
           try {
             const API_BASE_URL = 'http://localhost:4000';
+            
+            // Get admin token
+            const { data: session } = await supabase.auth.getSession();
+            const token = session?.session?.access_token;
+            
             const response = await fetch(`${API_BASE_URL}/users/${u.uid}`, {
               method: 'DELETE',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+              },
             });
             if (response.ok) {
               const result = await response.json();
@@ -670,8 +709,16 @@ const AdminUsers = () => {
           // Try Express API first
           try {
             const API_BASE_URL = 'http://localhost:4000';
+            
+            // Get admin token
+            const { data: session } = await supabase.auth.getSession();
+            const token = session?.session?.access_token;
+            
             const response = await fetch(`${API_BASE_URL}/users/${u.uid}/enable`, {
               method: 'PATCH',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+              },
             });
             if (response.ok) {
               const result = await response.json();

@@ -11,6 +11,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import Toast from '../components/Toast';
 import { v4 as uuidv4 } from 'uuid';
 import { supabase } from '../supabase';
+import { fullClientLogout } from '../utils/logout';
 
 // --- Lightweight Custom Pickers (Calendar + Time) ---
 // Calendar picker with month navigation and day grid
@@ -679,8 +680,7 @@ const HomePage = () => {
                     userName={userName} 
                     onStartInstant={createInstantMeeting}
                     onLogout={async () => {
-                        try { await supabase.auth.signOut(); } catch (_) {}
-                        try { localStorage.clear(); } catch (_) {}
+                        await fullClientLogout(() => supabase.auth.signOut());
                         setGlobalToast({ id: Date.now(), title: 'Logged out', message: 'You have been signed out.', type: 'success', duration: 1500 });
                         setTimeout(() => navigate('/'), 500);
                     }}
