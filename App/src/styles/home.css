@@ -1,0 +1,272 @@
+:root {
+  --mouse-x: 50%;
+  --mouse-y: 50%;
+}
+
+body {
+  background-color: #020617; /* bg-slate-950 */
+}
+
+.aura-background {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(
+    800px circle at var(--mouse-x) var(--mouse-y),
+    rgba(124, 58, 237, 0.1),
+    transparent 80%
+  );
+  z-index: -9;
+  transition: background 0.3s ease-out;
+}
+
+/* NEW: Ambient blob animation */
+@keyframes blob {
+  0% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  33% {
+    transform: translate(30px, -50px) scale(1.1);
+  }
+  66% {
+    transform: translate(-20px, 20px) scale(0.9);
+  }
+  100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+}
+
+.animate-blob {
+  animation: blob 8s infinite ease-in-out;
+}
+
+.animation-delay-2000 {
+  animation-delay: 2s;
+}
+
+@keyframes fade-in-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-slide-up {
+  animation: fade-in-slide-up 0.8s forwards ease-out;
+  opacity: 0;
+}
+
+/* NEW: Hero Code Card Styles */
+.hero-code-card {
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 0.4s ease-out;
+}
+.hero-code-card-content {
+  position: relative;
+  z-index: 2;
+  padding: 1rem;
+  height: 100%;
+  background-color: rgba(15, 23, 42, 0.6);
+  border: 1px solid #1e293b;
+  border-radius: 1rem;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.hero-code-card-glow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  border-radius: 1rem;
+  background: radial-gradient(
+    400px circle at var(--mouse-x) var(--mouse-y),
+    rgba(139, 92, 246, 0.25),
+    transparent 70%
+  );
+  transition: opacity 0.4s ease-out;
+  opacity: 0;
+}
+.hero-code-card:hover .hero-code-card-glow {
+  opacity: 1;
+}
+.blur-box {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(10px);
+  border-radius: 10px;
+}
+.product-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.75rem;
+  background-color: #0f172a;
+  border: 1px solid #1e293b;
+  transition: transform 0.3s ease, border-color 0.3s ease;
+  transform-style: preserve-3d;
+}
+
+.product-card-content {
+  position: relative;
+  z-index: 2;
+  padding: 1rem;
+  background-color: #0f172acc;
+  border-radius: 0.75rem;
+  height: 100%;
+}
+.product-card-glow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  border-radius: 0.75rem;
+  opacity: 0;
+  background: radial-gradient(
+    300px circle at var(--mouse-x) var(--mouse-y),
+    rgba(139, 92, 246, 0.2),
+    transparent 70%
+  );
+  transition: opacity 0.3s ease-out;
+}
+.product-card:hover {
+  border-color: rgba(139, 92, 246, 0.5);
+}
+.product-card:hover .product-card-glow {
+  opacity: 1;
+}
+
+.scroller-container {
+  overflow: hidden;
+  -webkit-mask: linear-gradient(
+    90deg,
+    transparent,
+    white 15%,
+    white 85%,
+    transparent
+  );
+  mask: linear-gradient(90deg, transparent, white 15%, white 85%, transparent);
+  perspective: 1000px;
+}
+.scroller-container:hover .scroller-content {
+  animation-play-state: paused;
+}
+.scroller-container[data-direction="rtl"] {
+  transform: rotate(-3deg) rotateY(10deg);
+}
+.scroller-container[data-direction="ltr"] {
+  transform: rotate(3deg) rotateY(-10deg);
+}
+.scroller-content {
+  display: flex;
+  width: max-content;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  transition: animation-play-state 0.3s;
+}
+.scroller-container[data-direction="rtl"] .scroller-content {
+  animation-name: scroll-rtl;
+  animation-duration: 50s;
+}
+.scroller-container[data-direction="ltr"] .scroller-content {
+  animation-name: scroll-ltr;
+  animation-duration: 50s;
+}
+@keyframes scroll-rtl {
+  to {
+    transform: translateX(-50%);
+  }
+}
+@keyframes scroll-ltr {
+  from {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(0%);
+  }
+}
+.scroller-item {
+  padding: 0.75rem 1.5rem;
+  border: 1px solid #334155;
+  background-color: #1e293b;
+  border-radius: 0.5rem;
+  margin: 0 1rem;
+  color: #e2e8f0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  transition: background-color 0.3s;
+}
+.scroller-item:hover {
+  background-color: #334155;
+}
+/* ... (Aapka existing CSS) ... */
+
+/* --- Page Load Animation --- */
+@keyframes fade-in-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-slide-up {
+  animation: fade-in-slide-up 0.6s ease-out forwards;
+}
+
+/* --- Staggered List Item Animation --- */
+@keyframes fade-in-item {
+  from {
+    opacity: 0;
+    transform: translateX(-15px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-fade-in-item {
+  opacity: 0; /* Initially hidden */
+  animation: fade-in-item 0.5s ease-out forwards;
+}
+
+/* --- Glowing Card Effect --- */
+.glowing-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.glowing-card::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(139, 92, 246, 0.1), transparent, transparent);
+  animation: rotate-glow 15s linear infinite;
+  z-index: 0;
+}
+
+@keyframes rotate-glow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

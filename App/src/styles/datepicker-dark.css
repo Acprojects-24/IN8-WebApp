@@ -1,0 +1,90 @@
+/* Custom Dark Theme for react-datepicker */
+
+.react-datepicker {
+    font-family: inherit;
+    background-color: #1e293b; /* slate-800 */
+    border: 1px solid #334155; /* slate-700 */
+    border-radius: 0.5rem;
+    color: #cbd5e1; /* slate-300 */
+}
+
+.react-datepicker__header {
+    background-color: #1e293b; /* slate-800 */
+    border-bottom: 1px solid #334155; /* slate-700 */
+}
+
+.react-datepicker__current-month,
+.react-datepicker-time__header,
+.react-datepicker-year-header {
+    color: #f1f5f9; /* slate-100 */
+    font-weight: 600;
+}
+
+.react-datepicker__day-name,
+.react-datepicker__day,
+.react-datepicker__time-name {
+    color: #94a3b8; /* slate-400 */
+    width: 2rem;
+    line-height: 2rem;
+}
+
+.react-datepicker__day:hover,
+.react-datepicker__month-text:hover,
+.react-datepicker__quarter-text:hover,
+.react-datepicker__year-text:hover {
+    background-color: #334155; /* slate-700 */
+    border-radius: 0.375rem;
+}
+
+.react-datepicker__day--selected,
+.react-datepicker__day--in-selecting-range,
+.react-datepicker__day--in-range,
+.react-datepicker__month--selected,
+.react-datepicker__month--in-selecting-range,
+.react-datepicker__month--in-range {
+    background-color: #3b82f6; /* blue-500 */
+    color: #ffffff;
+    border-radius: 0.375rem;
+}
+
+.react-datepicker__day--keyboard-selected {
+    background-color: #3b82f6;
+    color: #ffffff;
+}
+
+.react-datepicker__day--disabled {
+    color: #475569; /* slate-600 */
+    cursor: default;
+}
+
+.react-datepicker__day--disabled:hover {
+    background-color: transparent;
+}
+
+.react-datepicker__navigation-icon::before {
+    border-color: #cbd5e1; /* slate-300 */
+}
+
+.react-datepicker__time-container {
+    border-left: 1px solid #334155; /* slate-700 */
+}
+
+.react-datepicker__time-list-item {
+    color: #94a3b8; /* slate-400 */
+}
+
+.react-datepicker__time-list-item:hover {
+    background-color: #334155 !important; /* slate-700 */
+    color: #f1f5f9 !important; /* slate-100 */
+}
+
+.react-datepicker__time-list-item--selected {
+    background-color: #3b82f6 !important; /* blue-500 */
+    color: #ffffff !important;
+    font-weight: bold;
+}
+
+.react-datepicker__popper[data-placement^="bottom"] .react-datepicker__triangle::before,
+.react-datepicker__popper[data-placement^="bottom"] .react-datepicker__triangle::after {
+    border-bottom-color: #1e293b; /* slate-800 */
+}
