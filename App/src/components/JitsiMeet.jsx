@@ -31,7 +31,6 @@ const JitsiMeet = React.memo(({
     startWithVideoMuted,
     startWithAudioMuted,
     prejoinPageEnabled,
-    toolbarButtons,
     noiseSuppressionEnabled,
     jwt,
     showToast,
@@ -83,14 +82,20 @@ const JitsiMeet = React.memo(({
                     startWithVideoMuted,
                     startWithAudioMuted,
                     prejoinPageEnabled,
-                    disableInitialGUM: true,
+                    prejoinConfig: { enabled: false },
+                    enableWelcomePage: false,
+                    enableClosePage: false,
+                    disableInitialGUM: false,
+                    requireDisplayName: false,
                     noiseSuppression: {
                         enabled: noiseSuppressionEnabled,
                     },
                 },
                 interfaceConfigOverwrite: {
-                    TOOLBAR_BUTTONS: toolbarButtons,
                     SHOW_JITSI_WATERMARK: false,
+                    DISPLAY_WELCOME_PAGE_CONTENT: false,
+                    DISPLAY_WELCOME_PAGE_TOOLBAR_ADDITIONAL_CONTENT: false,
+                    SHOW_CHROME_EXTENSION_BANNER: false,
                 },
             };
             if (jwt) {
@@ -185,6 +190,20 @@ const JitsiMeet = React.memo(({
                         onMeetingEnd();
                     }
                 });
+                try {
+                    apiRef.current.addEventListener('readyToClose', () => {
+                        if (onMeetingEnd && typeof onMeetingEnd === 'function') {
+                            onMeetingEnd();
+                        }
+                    });
+                } catch (_) {}
+                try {
+                    apiRef.current.addEventListener('participantKickedOut', () => {
+                        if (onMeetingEnd && typeof onMeetingEnd === 'function') {
+                            onMeetingEnd();
+                        }
+                    });
+                } catch (_) {}
 
                 apiRef.current.addEventListener('recordingStatusChanged', (status) => {
                     if (onRecordingStatusChanged && typeof onRecordingStatusChanged === 'function') {
@@ -266,7 +285,6 @@ JitsiMeet.propTypes = {
     startWithVideoMuted: PropTypes.bool,
     startWithAudioMuted: PropTypes.bool,
     prejoinPageEnabled: PropTypes.bool,
-    toolbarButtons: PropTypes.arrayOf(PropTypes.string),
     noiseSuppressionEnabled: PropTypes.bool,
     jwt: PropTypes.string,
     showToast: PropTypes.func,
@@ -279,7 +297,6 @@ JitsiMeet.defaultProps = {
     startWithVideoMuted: false,
     startWithAudioMuted: false,
     prejoinPageEnabled: false,
-    toolbarButtons: [],
      noiseSuppressionEnabled: true,
      jwt: undefined,
 };

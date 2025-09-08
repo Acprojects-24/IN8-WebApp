@@ -6,7 +6,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
     VideoIcon, Mail, Calendar, Clock, Video, X, Share2, Copy, Check,
     Users, Film, MessageSquare, ArrowLeft, User as UserIcon, KeyRound, ChevronLeft, ChevronRight,
-    Mic, MicOff, VideoOff, PanelLeftOpen, Settings as SettingsIcon, Hand, MonitorUp, PhoneOff,
+    Mic, MicOff, VideoOff, Settings as SettingsIcon, Hand, MonitorUp, PhoneOff,
     Presentation, Timer, HardDriveDownload, CalendarClock, MoreHorizontal, FileText, CalendarDays
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
@@ -16,9 +16,7 @@ import { InfoPanel } from '../components/InfoPanel';
 import Toast from "../components/Toast";
 import JitsiMeet from '../components/JitsiMeet';
 import { createAdminJwt } from '../utils/jwt';
-import CustomControls from '../components/CustomControls';
 import { supabase } from '../supabase';
-import MeetingSidebar from '../components/MeetingSidebar';
 
 
 const LoadingScreen = () => {
@@ -1233,7 +1231,6 @@ const CreateMeeting = ({ onSubmit, isLoading, initialUserName, navigate }) => {
     );
 };
 
-const EMPTY_TOOLBAR = [];
 
 const MeetingPage = () => {
     const { meetingId } = useParams();
@@ -1251,13 +1248,13 @@ const MeetingPage = () => {
     const [currentUser, setCurrentUser] = useState(null);
     const [userName, setUserName] = useState('');
     const [jitsiApi, setJitsiApi] = useState(null);
-    const [isMeetingSidebarOpen, setIsMeetingSidebarOpen] = useState(true);
     const dashboardContainerRef = useRef(null);
     const [isJitsiLoading, setIsJitsiLoading] = useState(false);
     const [canJoinMeeting, setCanJoinMeeting] = useState(false);
     const [isWaitingForHost, setIsWaitingForHost] = useState(false);
     const [whiteboardOpen, setWhiteboardOpen] = useState(false);
     const [adminIds, setAdminIds] = useState([]);
+    const [isSharePopoverOpen, setIsSharePopoverOpen] = useState(false);
     const [adminDisplayNames, setAdminDisplayNames] = useState([]);
     const [isCurrentAdmin, setIsCurrentAdmin] = useState(false);
     const prevIsAdminRef = useRef(false);
@@ -1964,7 +1961,7 @@ useEffect(() => {
             try { jitsiApi.executeCommand('hangup'); } catch (_) {}
             setActiveMeeting(null);
             setJitsiApi(null);
-            navigate(role === 'admin' ? '/meeting' : '/home');
+            navigate('/meeting');
         };
         const onReadyToClose = () => leaveNow();
         const onLeft = () => leaveNow();
@@ -2087,7 +2084,7 @@ useEffect(() => {
         localStorage.removeItem('guestJoinVideo');
         setActiveMeeting(null);
         setJitsiApi(null);
-        navigate(role === 'admin' ? '/meeting' : '/home');
+        navigate('/meeting');
     }, [navigate]);
 
     if (isPageLoading) {
@@ -2097,19 +2094,6 @@ useEffect(() => {
     return (
 
         <div className="flex h-screen relative z-10 overflow-hidden bg-slate-950">
-            {activeMeeting ? (
-                <MeetingSidebar  isOpen={isMeetingSidebarOpen} 
-                    setIsOpen={setIsMeetingSidebarOpen} 
-                    jitsiApi={jitsiApi} 
-                    meetingLink={newMeetingLink || `${window.location.origin}/meeting/${activeMeeting.id}`}
-                    isHost={activeMeeting.isHost}
-                    isAdmin={isCurrentAdmin}
-                    localDisplayName={activeMeeting.displayName}
-                    hostName={activeMeeting.host_name}
-                    meetingId={activeMeeting.id} adminIds={adminIds} adminDisplayNames={adminDisplayNames} 
-                    hostParticipantId={hostParticipantId}
-                    showToast={showToast}/>
-            ) : null}
             <div className="fixed top-5 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-5 w-full max-w-sm px-4 sm:px-0 z-[60]"><AnimatePresence>{activeToast && <Toast key={activeToast.id} toast={activeToast} onClose={() => setActiveToast(null)} />}</AnimatePresence></div>
             <AnimatePresence>{isShareModalOpen && <ShareModal meetingLink={newMeetingLink} onClose={() => setIsShareModalOpen(false)} onStart={() => { setIsShareModalOpen(false); if (newMeetingLink) { const id = newMeetingLink.split('/').pop(); navigate(`/meeting/${id}`); } }} />}</AnimatePresence>
 
@@ -2523,17 +2507,170 @@ useEffect(() => {
               )}
             </AnimatePresence>
             <div className="flex-1 flex flex-col h-screen relative">
-                 {activeMeeting && !isMeetingSidebarOpen && (
-                       <button onClick={() => setIsMeetingSidebarOpen(true)} className="absolute top-4 left-4 z-20 p-2 bg-slate-700/50 rounded-lg text-white hover:bg-slate-600" title="Open Sidebar">
-                             <PanelLeftOpen size={20} />
-                       </button>
-                 )}
                 <main className={`flex-1 flex flex-col h-full transition-all duration-300 ${activeMeeting ? 'p-0' : 'p-4 sm:p-6 overflow-y-auto thin-scrollbar'}`}>
                     <AnimatePresence mode="wait">
                         {activeMeeting ? (
         <motion.div key="meeting-view" className="w-full h-full flex flex-col bg-slate-950 relative" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{duration: 0.4}}>
             
             {isJitsiLoading && <LoadingScreen />}
+
+            {activeMeeting && (
+                <motion.div 
+                    className="absolute top-6 left-6 z-50"
+                    initial={{ opacity: 0, scale: 0.8, rotate: -10 }}
+                    animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                    transition={{ duration: 0.4, ease: "easeOut" }}
+                >
+                    <div className="relative">
+                        {/* Floating Share Button with Unique Design */}
+                        <motion.button
+                            onClick={() => setIsSharePopoverOpen(v => !v)}
+                            className="relative group"
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ 
+                                scale: 0.9,
+                                rotate: [0, -5, 5, 0],
+                                transition: { duration: 0.3 }
+                            }}
+                            transition={{ duration: 0.2 }}
+                        >
+                            {/* Static Background Gradient */}
+                            <motion.div 
+                                className="absolute inset-0 rounded-2xl bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 opacity-0 group-hover:opacity-100 blur-sm transition-opacity duration-300"
+                            />
+                            
+                             {/* Main Button */}
+                             <div className="relative w-14 h-14 rounded-2xl bg-slate-900/90 backdrop-blur-xl shadow-2xl flex items-center justify-center transition-all duration-300">
+                                {/* Inner Glow Effect */}
+                                <motion.div 
+                                    className="absolute inset-1 rounded-xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                                />
+                                
+                                {/* Icon with Click Animation */}
+                                <motion.div
+                                    animate={{ 
+                                        rotate: isSharePopoverOpen ? 180 : 0,
+                                    }}
+                                    transition={{ 
+                                        rotate: { duration: 0.3 },
+                                    }}
+                                    className="text-slate-200 group-hover:text-white transition-colors duration-300"
+                                >
+                                    <Share2 size={20} strokeWidth={2.5} />
+                                </motion.div>
+                                
+                            </div>
+                        </motion.button>
+                        
+                        {/* Enhanced Popover with Unique Layout */}
+                        <AnimatePresence>
+                            {isSharePopoverOpen && (
+                                <motion.div 
+                                    className="absolute top-16 left-0 w-[380px]"
+                                    initial={{ opacity: 0, scale: 0.8, y: -20, rotateX: -15 }}
+                                    animate={{ opacity: 1, scale: 1, y: 0, rotateX: 0 }}
+                                    exit={{ opacity: 0, scale: 0.8, y: -20, rotateX: -15 }}
+                                    transition={{ duration: 0.3, ease: "easeOut" }}
+                                    style={{ perspective: 1000 }}
+                                >
+                                    {/* Card with Gradient Border */}
+                                    <div className="relative p-[1px] rounded-2xl bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500">
+                                        <div className="bg-slate-900/95 backdrop-blur-xl rounded-2xl p-5 shadow-2xl">
+                                            {/* Header with Icon */}
+                                            <motion.div 
+                                                className="flex items-center gap-3 mb-4"
+                                                initial={{ opacity: 0, x: -20 }}
+                                                animate={{ opacity: 1, x: 0 }}
+                                                transition={{ delay: 0.1 }}
+                                            >
+                                                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                                                    <Share2 size={16} className="text-white" />
+                                                </div>
+                                                <div>
+                                                    <h3 className="text-sm font-semibold text-white">Share Meeting</h3>
+                                                    <p className="text-xs text-slate-400">Copy link to invite others</p>
+                                                </div>
+                                            </motion.div>
+                                            
+                                            {/* Link Display with Copy Action */}
+                                            <motion.div 
+                                                className="space-y-3"
+                                                initial={{ opacity: 0, y: 10 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                transition={{ delay: 0.2 }}
+                                            >
+                                                {/* URL Preview */}
+                                                <div className="bg-slate-800/50 rounded-xl p-3 border border-slate-700/50">
+                                                    <div className="text-xs text-slate-400 mb-2">Meeting URL</div>
+                                                    <div className="text-sm text-slate-200 font-mono break-all">
+                                                        {newMeetingLink || `${window.location.origin}/meeting/${activeMeeting.id}`}
+                                                    </div>
+                                                </div>
+                                                
+                                                {/* Action Buttons */}
+                                                <div className="flex gap-2">
+                                                    <motion.button
+                                                        onClick={() => {
+                                                            const value = newMeetingLink || `${window.location.origin}/meeting/${activeMeeting.id}`;
+                                                            navigator.clipboard.writeText(value);
+                                                            showToast && showToast({ title: 'Copied!', message: 'Meeting link copied to clipboard', type: 'success' });
+                                                            setIsSharePopoverOpen(false);
+                                                        }}
+                                                        className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-medium text-sm"
+                                                        whileHover={{ 
+                                                            scale: 1.02,
+                                                            boxShadow: "0 8px 25px -8px rgba(99, 102, 241, 0.4)"
+                                                        }}
+                                                        whileTap={{ scale: 0.98 }}
+                                                        transition={{ duration: 0.15 }}
+                                                    >
+                                                        <Copy size={16} />
+                                                        Copy Link
+                                                    </motion.button>
+                                                    
+                                                    <motion.button
+                                                        onClick={() => setIsSharePopoverOpen(false)}
+                                                        className="px-4 py-3 rounded-xl bg-slate-700/50 text-slate-300 hover:bg-slate-600/50 transition-colors duration-200"
+                                                        whileHover={{ scale: 1.02 }}
+                                                        whileTap={{ scale: 0.98 }}
+                                                    >
+                                                        <X size={16} />
+                                                    </motion.button>
+                                                </div>
+                                            </motion.div>
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Floating Particles Effect */}
+                                    <div className="absolute inset-0 pointer-events-none">
+                                        {[...Array(3)].map((_, i) => (
+                                            <motion.div
+                                                key={i}
+                                                className="absolute w-1 h-1 bg-indigo-400 rounded-full"
+                                                style={{
+                                                    left: `${20 + i * 30}%`,
+                                                    top: `${10 + i * 20}%`,
+                                                }}
+                                                animate={{
+                                                    y: [-10, -30, -10],
+                                                    opacity: [0, 1, 0],
+                                                    scale: [0, 1, 0]
+                                                }}
+                                                transition={{
+                                                    duration: 2,
+                                                    repeat: Infinity,
+                                                    delay: i * 0.5
+                                                }}
+                                            />
+                                        ))}
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </div>
+                </motion.div>
+            )}
+
             {isWaitingForHost && !canJoinMeeting && (
                 <div className="absolute inset-0 bg-slate-900/95 z-[100] flex items-center justify-center">
                     <div className="text-center">
@@ -2555,7 +2692,6 @@ useEffect(() => {
         startWithVideoMuted={(() => { const g = localStorage.getItem('joinAsGuest') === 'true'; if (!g) return activeMeeting.startWithVideoMuted; const videoOn = localStorage.getItem('guestJoinVideo') === 'true'; return !videoOn; })()}
         startWithAudioMuted={(() => { const g = localStorage.getItem('joinAsGuest') === 'true'; if (!g) return activeMeeting.startWithAudioMuted; const audioOn = localStorage.getItem('guestJoinAudio') === 'true'; return !audioOn; })()}
         prejoinPageEnabled={false}
-        toolbarButtons={EMPTY_TOOLBAR}
         showToast={showToast}
         noiseSuppressionEnabled={true} 
         jwt={adminJwt}
@@ -2569,20 +2705,6 @@ useEffect(() => {
                                 />
                                 
 
-                                {jitsiApi &&  activeMeeting &&( 
-    <CustomControls 
-        jitsiApi={jitsiApi} 
-        onHangup={handleEndMeeting} 
-        areControlsVisible={areControlsVisible}
-        pauseTimer={() => clearTimeout(inactivityTimer.current)}
-        resumeTimer={showControlsAndResetTimer}
-        isHost={activeMeeting.isHost}
-        isAdmin={isCurrentAdmin}
-        showToast={showToast}
-        isWhiteboardOpen={whiteboardOpen}
-        onToggleWhiteboard={handleToggleWhiteboard}
-    /> 
-)}
                             </motion.div>
                         ) : (
                             <div key="dashboard-view" ref={dashboardContainerRef} className="min-h-full flex flex-col gap-6">
