@@ -164,10 +164,23 @@ const CustomControls = ({ jitsiApi, onHangup, areControlsVisible, pauseTimer, re
     }, { scope: containerRef, dependencies: [isStreaming, isRecording] });
 
     useEffect(() => {
-        if (!jitsiApi) return;
+        if (!jitsiApi) {
+            console.log('[CustomControls] No JitsiAPI available');
+            return;
+        }
 
-        jitsiApi.isAudioMuted().then(muted => setIsAudioMuted(muted));
-        jitsiApi.isVideoMuted().then(muted => setIsVideoMuted(muted));
+        console.log('[CustomControls] Setting up event listeners');
+
+        // Get initial states
+        jitsiApi.isAudioMuted().then(muted => {
+            console.log('[CustomControls] Initial audio muted:', muted);
+            setIsAudioMuted(muted);
+        }).catch(e => console.error('[CustomControls] Error getting audio state:', e));
+        
+        jitsiApi.isVideoMuted().then(muted => {
+            console.log('[CustomControls] Initial video muted:', muted);
+            setIsVideoMuted(muted);
+        }).catch(e => console.error('[CustomControls] Error getting video state:', e));
 
         const handleAudioMute = ({ muted }) => setIsAudioMuted(muted);
         const handleVideoMute = ({ muted }) => setIsVideoMuted(muted);
@@ -224,10 +237,22 @@ const CustomControls = ({ jitsiApi, onHangup, areControlsVisible, pauseTimer, re
     }, [isMoreMenuOpen]);
 
     // Command functions
-    const toggleAudio = () => jitsiApi?.executeCommand('toggleAudio');
-    const toggleVideo = () => jitsiApi?.executeCommand('toggleVideo');
-    const toggleScreenShare = () => jitsiApi?.executeCommand('toggleShareScreen');
-    const raiseHand = () => jitsiApi?.executeCommand('toggleRaiseHand');
+    const toggleAudio = () => {
+        console.log('[CustomControls] Toggle audio', { hasApi: !!jitsiApi });
+        jitsiApi?.executeCommand('toggleAudio');
+    };
+    const toggleVideo = () => {
+        console.log('[CustomControls] Toggle video', { hasApi: !!jitsiApi });
+        jitsiApi?.executeCommand('toggleVideo');
+    };
+    const toggleScreenShare = () => {
+        console.log('[CustomControls] Toggle screen share', { hasApi: !!jitsiApi });
+        jitsiApi?.executeCommand('toggleShareScreen');
+    };
+    const raiseHand = () => {
+        console.log('[CustomControls] Raise hand', { hasApi: !!jitsiApi });
+        jitsiApi?.executeCommand('toggleRaiseHand');
+    };
     const toggleRecording = async () => {
         if (!jitsiApi) return;
         // Block starting recording if currently live

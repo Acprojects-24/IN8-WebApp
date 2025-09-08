@@ -273,7 +273,7 @@ const NEW_MeetingSidebar = ({ isOpen, setIsOpen, jitsiApi, meetingLink, isHost, 
         if (updateTimerRef.current) clearTimeout(updateTimerRef.current);
         updateTimerRef.current = setTimeout(() => {
             updateParticipantList();
-        }, 150);
+        }, 100);
     }, [updateParticipantList]);
 
     useEffect(() => {
@@ -319,9 +319,10 @@ const NEW_MeetingSidebar = ({ isOpen, setIsOpen, jitsiApi, meetingLink, isHost, 
 
     useEffect(() => {
         if (!jitsiApi) return;
+        // More frequent updates for better participant tracking
         pollRef.current = setInterval(() => {
             updateParticipantList();
-        }, 3000);
+        }, 1000);
         return () => {
             if (pollRef.current) clearInterval(pollRef.current);
         };

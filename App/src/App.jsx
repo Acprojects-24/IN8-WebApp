@@ -9,6 +9,7 @@ import Meeting from "./pages/Meeting";
 import GuestMeeting from "./pages/GuestMeeting";
 import Dashboard from "./pages/Dashboard";
 import AdminUsers from "./pages/AdminUsers";
+import Profile from "./pages/Profile";
 import Test from "./pages/Test";
 import ProtectedRoute from "./components/ProtectedRoute";
 import PublicRoute from "./components/PublicRoute";
@@ -83,6 +84,16 @@ const App = () => {
             element={
               <ProtectedRoute requiredRole="admin" fallbackTo="/home">
                 <AdminUsers />
+              </ProtectedRoute>
+            }
+          />
+          
+          {/* Profile Page - accessible to all authenticated users */}
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <Profile />
               </ProtectedRoute>
             }
           />

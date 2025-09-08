@@ -12,6 +12,8 @@ import Toast from '../components/Toast';
 import { v4 as uuidv4 } from 'uuid';
 import { supabase } from '../supabase';
 import { fullClientLogout } from '../utils/logout';
+import { getUserProfile, getProfileImage, getUserId } from '../utils/profileUtils';
+import { createProfileTransition } from '../utils/profileTransition';
 
 // --- Lightweight Custom Pickers (Calendar + Time) ---
 // Calendar picker with month navigation and day grid
@@ -370,12 +372,13 @@ const useMeetingStats = (userId) => {
             // Fetch meetings created by user
             const { data: userMeetings, error: meetingsError } = await supabase
                 .from('meetings')
-                .select('id, created_at, scheduled_for, is_scheduled')
+                .select('id, created_at, scheduled_for, is_scheduled, completed_at')
                 .eq('created_by', userId);
 
             if (meetingsError) throw meetingsError;
 
             const meetings = Array.isArray(userMeetings) ? userMeetings : [];
+            console.log('[Home] Raw meetings data:', meetings);
 
             // Meetings joined this month (meetings created this month)
             const meetingsThisMonth = meetings.filter(meeting => {
@@ -383,11 +386,23 @@ const useMeetingStats = (userId) => {
                 return createdAt >= startOfMonth && createdAt <= endOfMonth;
             });
 
-            // Past meetings: ONLY non-scheduled (instant) meetings
-            const pastMeetings = meetings.filter(meeting => !meeting.is_scheduled);
+            // Past meetings: non-scheduled (instant) meetings + completed scheduled meetings
+            const pastMeetings = meetings.filter(meeting => 
+                !meeting.is_scheduled || // Instant meetings (originally created as not scheduled)
+                meeting.completed_at    // Any meeting that has been completed (originally scheduled but now done)
+            );
 
-            // Scheduled meetings: ALL meetings that were created as scheduled, regardless of time
-            const scheduledMeetings = meetings.filter(meeting => meeting.is_scheduled);
+            // Scheduled meetings: ONLY meetings that are still scheduled (not yet started/completed)
+            const scheduledMeetings = meetings.filter(meeting => 
+                meeting.is_scheduled === true && !meeting.completed_at
+            );
+
+            console.log('[Home] Filtered meetings:', { 
+                total: meetings.length, 
+                past: pastMeetings.length, 
+                scheduled: scheduledMeetings.length,
+                thisMonth: meetingsThisMonth.length
+            });
 
             // Recordings available (from meeting_actions table with type 'recording-start')
             const { data: recordingActions, error: recordingsError } = await supabase
@@ -481,7 +496,15 @@ const AppHeader = ({ userName, onStartInstant, onLogout }) => {
                 </button>
                 <div className="relative" ref={profileRef}>
                     <button onClick={() => setIsProfileOpen(!isProfileOpen)} className="flex items-center gap-2">
-                        <img src={`https://i.pravatar.cc/150?u=${userName.replace(' ', '')}`} alt="Profile" className="w-10 h-10 rounded-full border-2 border-slate-700" />
+                        <img 
+                            src={profileImage} 
+                            alt="Profile" 
+                            className="w-10 h-10 rounded-full border-2 border-slate-700 object-cover cursor-pointer hover:border-slate-500 transition-colors" 
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                profileTransition(e.target);
+                            }}
+                        />
                         <ChevronDown size={16} className={`text-slate-500 transition-transform ${isProfileOpen ? 'rotate-180' : ''}`} />
                     </button>
                     <AnimatePresence>
@@ -494,7 +517,22 @@ const AppHeader = ({ userName, onStartInstant, onLogout }) => {
                                 className="absolute top-full right-0 mt-2 w-48 bg-slate-800 rounded-lg shadow-lg border border-slate-700 origin-top-right z-50"
                             >
                                 <div className="p-2">
-                                    <a href="#" className="flex items-center gap-3 px-3 py-2 text-sm text-slate-300 rounded-md hover:bg-slate-700"><User size={16} /> Profile</a>
+                                    <button 
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            setIsProfileOpen(false);
+                                            // Use the profile image as source for transition
+                                            const profileImg = profileRef.current?.querySelector('img');
+                                            if (profileImg) {
+                                                profileTransition(profileImg);
+                                            } else {
+                                                navigate('/profile');
+                                            }
+                                        }}
+                                        className="flex items-center gap-3 px-3 py-2 text-sm text-slate-300 rounded-md hover:bg-slate-700 w-full text-left"
+                                    >
+                                        <User size={16} /> Profile
+                                    </button>
                                     <a href="#" className="flex items-center gap-3 px-3 py-2 text-sm text-slate-300 rounded-md hover:bg-slate-700"><Settings size={16} /> Settings</a>
                                     <div className="h-px bg-slate-700 my-1"></div>
                                     <button 
@@ -521,6 +559,7 @@ const HomePage = () => {
     const [meetingId, setMeetingId] = useState('');
     const [activeTab, setActiveTab] = useState('upcoming');
     const [currentUser, setCurrentUser] = useState(null);
+    const [profileImage, setProfileImage] = useState('');
     const navigate = useNavigate();
 
     const [isNewMeetingOpen, setIsNewMeetingOpen] = useState(false);
@@ -550,14 +589,34 @@ const HomePage = () => {
     const [showScheduleCalendar, setShowScheduleCalendar] = useState(false);
     const [showScheduleTime, setShowScheduleTime] = useState(false);
 
+    // Create profile transition function
+    const profileTransition = createProfileTransition(navigate);
+
     // Use the meeting stats hook
     const { stats, loading: statsLoading, error: statsError, lastUpdated, refreshStats } = useMeetingStats(currentUser?.id);
 
     useEffect(() => {
-        const storedUserName = localStorage.getItem('userName');
-        if (storedUserName) {
-            setUserName(storedUserName);
-        }
+        const loadUserData = () => {
+            // Load user profile data with new utilities
+            const profile = getUserProfile();
+            if (profile?.name) {
+                setUserName(profile.name);
+            } else {
+                // Fallback to legacy storage
+                const storedUserName = localStorage.getItem('userName');
+                if (storedUserName) {
+                    setUserName(storedUserName);
+                }
+            }
+            
+            // Load profile image
+            const userId = getUserId();
+            const userImage = getProfileImage(userId);
+            setProfileImage(userImage);
+        };
+        
+        loadUserData();
+        
         let mounted = true;
         (async () => {
             const { data: { session } } = await supabase.auth.getSession();
@@ -567,7 +626,21 @@ const HomePage = () => {
             if (!mounted) return;
             setCurrentUser(session?.user || null);
         });
-        return () => { mounted = false; sub.subscription.unsubscribe(); };
+        
+        // Listen for profile updates
+        const handleProfileUpdate = () => {
+            loadUserData();
+        };
+        
+        window.addEventListener('storage', handleProfileUpdate);
+        window.addEventListener('profileUpdated', handleProfileUpdate);
+        
+        return () => { 
+            mounted = false; 
+            sub.subscription.unsubscribe();
+            window.removeEventListener('storage', handleProfileUpdate);
+            window.removeEventListener('profileUpdated', handleProfileUpdate);
+        };
     }, []);
 
 
@@ -595,10 +668,10 @@ const HomePage = () => {
             if (error) throw error;
             localStorage.setItem(`hostToken_${data.id}`, hostToken);
             
-            // Refresh stats after creating a meeting
+            // Refresh stats after creating a meeting (reduced delay)
             setTimeout(() => {
                 refreshStats();
-            }, 1000);
+            }, 200);
             
             // Reset form and close modal
             setNewMeetingForm({
@@ -630,16 +703,19 @@ const HomePage = () => {
                     .from('meetings')
                     .select('*')
                     .eq('created_by', currentUser.id)
-                    .eq('is_scheduled', false)
                     .order('created_at', { ascending: false });
                 if (error) throw error;
-                meetings = data || [];
+                // Filter for past meetings: non-scheduled (instant) + completed scheduled meetings
+                meetings = (data || []).filter(meeting => 
+                    !meeting.is_scheduled || meeting.completed_at
+                );
             } else if (type === 'upcoming') {
                 const { data, error } = await supabase
                     .from('meetings')
                     .select('*')
                     .eq('created_by', currentUser.id)
                     .eq('is_scheduled', true)
+                    .is('completed_at', null) // Only meetings that haven't been completed yet
                     .order('scheduled_for', { ascending: true, nulls: 'last' });
                 if (error) throw error;
                 meetings = data || [];
@@ -1162,8 +1238,8 @@ const HomePage = () => {
                                                     {selectedMeetingType === 'upcoming' && (
                                                         <motion.button
                                                             onClick={() => {
+                                                                setIsMeetingDetailsOpen(false); // Auto-close meeting details modal
                                                                 navigate(`/meeting/${meeting.id}`);
-                                                                setIsMeetingDetailsOpen(false);
                                                             }}
                                                             whileHover={{ scale: 1.02 }}
                                                             whileTap={{ scale: 0.98 }}

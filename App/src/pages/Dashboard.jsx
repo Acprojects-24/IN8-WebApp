@@ -5,18 +5,21 @@ import {
   RadialBarChart, RadialBar, PolarAngleAxis, AreaChart, Area
 } from 'recharts';
 import { motion, AnimatePresence, useInView, animate } from 'framer-motion';
-import { 
+import {
     Bell, Video, MessageSquare, UserPlus, FileText, ChevronLeft, ChevronRight, Search, ArrowRight, PlusCircle, Send,
     LayoutDashboard, Briefcase, Calendar as CalendarIcon, Settings, LifeBuoy, LogOut, Users, Menu, X,
     Activity, TrendingUp, Clock, Database, Zap, Globe, Shield, BarChart3, PieChart as PieChartIcon
 } from 'lucide-react';
 import { gsap } from 'gsap';
+import { useNavigate } from 'react-router-dom';
 import { DrawSVGPlugin } from 'gsap/DrawSVGPlugin';
 import Sidebar from '../components/Sidebar.jsx';
 import { supabase } from '../supabase';
 import { useJicofoMetrics } from '../components/metrics/useJicofoMetrics.ts';
 import MetricsCards from '../components/metrics/MetricsCards.jsx';
 import BridgesTable from '../components/metrics/BridgesTable.jsx';
+import { getUserProfile, getProfileImage, getUserId } from '../utils/profileUtils';
+import { createProfileTransition } from '../utils/profileTransition';
 
 // GSAP Plugin Registration
 gsap.registerPlugin(DrawSVGPlugin);
@@ -88,19 +91,19 @@ const useDashboardMetrics = () => {
 
             // Fetch all metrics in parallel
             const [usersResponse, meetingsResponse, actionsResponse, todayUsersResponse] = await Promise.all([
-                supabase.from('users').select('*', { count: 'exact', head: true }),
-                supabase.from('meetings').select('*', { count: 'exact', head: true }),
-                supabase.from('meeting_actions').select('*', { count: 'exact', head: true }),
-                supabase.from('users').select('*', { count: 'exact', head: true })
-                    .gte('created_at', new Date().toISOString().split('T')[0])
+                supabase.from('users').select('*', { count: 'exact' }),
+                supabase.from('meetings').select('*', { count: 'exact' }),
+                supabase.from('meeting_actions').select('*', { count: 'exact' }),
+                supabase.from('users').select('*', { count: 'exact' }).gte('created_at', new Date().toISOString().split('T')[0])
             ]);
 
             // Get scheduled meetings
             const { count: scheduledCount } = await supabase
                 .from('meetings')
-                .select('*', { count: 'exact', head: true })
+                .select('*', { count: 'exact' })
                 .eq('is_scheduled', true)
-                .gt('scheduled_for', new Date().toISOString());
+                .gt('scheduled_for', new Date().toISOString())
+                ;
 
             // Get active users (users who created meetings in last 30 days)
             const thirtyDaysAgo = new Date();
@@ -297,7 +300,7 @@ const useChartData = () => {
 
                     const { count } = await supabase
                         .from('users')
-                        .select('*', { count: 'exact', head: true })
+                        .select('*', { count: 'exact' })
                         .gte('created_at', startOfDay)
                         .lte('created_at', endOfDay);
 
@@ -318,7 +321,7 @@ const useChartData = () => {
 
                     const { count } = await supabase
                         .from('meetings')
-                        .select('*', { count: 'exact', head: true })
+                        .select('*', { count: 'exact' })
                         .gte('created_at', startOfDay)
                         .lte('created_at', endOfDay);
 
@@ -581,8 +584,13 @@ export default function App() {
   const lineChartRef = useRef(null);
   const isInView = useInView(lineChartRef, { once: true, margin: "-100px" });
   const [userName, setUserName] = useState('User');
+  const [profileImage, setProfileImage] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  
+  // Create profile transition function
+  const navigate = useNavigate();
+  const profileTransition = createProfileTransition(navigate);
   const { width } = useWindowSize();
   const isMobile = width < 640;
 
@@ -600,10 +608,23 @@ export default function App() {
   const [diskData, setDiskData] = useState(generateResourceData());
 
   useEffect(() => {
-    const storedUserName = localStorage.getItem('userName');
-    if (storedUserName) {
-        setUserName(storedUserName);
-    }
+    const loadUserData = () => {
+      const profile = getUserProfile();
+      if (profile?.name) setUserName(profile.name);
+      else {
+        const storedUserName = localStorage.getItem('userName');
+        if (storedUserName) setUserName(storedUserName);
+      }
+
+      const userId = getUserId();
+      setProfileImage(getProfileImage(userId));
+    };
+
+    loadUserData();
+
+    const handleProfileUpdate = () => loadUserData();
+    window.addEventListener('storage', handleProfileUpdate);
+    window.addEventListener('profileUpdated', handleProfileUpdate);
 
     // System metrics simulation - can be replaced with real monitoring
     const interval = setInterval(() => {
@@ -621,6 +642,8 @@ export default function App() {
     return () => {
         clearInterval(interval);
         clearInterval(refreshInterval);
+        window.removeEventListener('storage', handleProfileUpdate);
+        window.removeEventListener('profileUpdated', handleProfileUpdate);
     };
   }, [refetchMetrics]);
 
@@ -712,13 +735,20 @@ export default function App() {
                             <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />
                         </button>
                         
-                        <div className="w-10 h-10 rounded-xl overflow-hidden border-2 border-slate-600/50 hover:border-blue-500/50 transition-colors">
+                        <button 
+                            onClick={(e) => {
+                                e.preventDefault();
+                                profileTransition(e.target.closest('img'));
+                            }}
+                            className="w-10 h-10 rounded-xl overflow-hidden border-2 border-slate-600/50 hover:border-blue-500/50 transition-colors"
+                            title="Profile"
+                        >
                             <img 
-                                src={`https://i.pravatar.cc/150?u=${userName.replace(' ', '')}`} 
+                                src={profileImage}
                                 alt="Profile" 
                                 className="w-full h-full object-cover" 
                             />
-                        </div>
+                        </button>
                     </div>
                 </div>
             </motion.header>

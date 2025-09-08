@@ -7,9 +7,11 @@ import {
     ChevronDown, LogOut, CircleUserRound, X
 } from 'lucide-react';
 import MyLogo from '../assets/logo.png'; 
-import Toast from './Toast'; // <-- Yahan Toast component import kiya gaya hai
+import Toast from './Toast'; 
 import { fullClientLogout } from '../utils/logout';
 import { supabase } from '../supabase';
+import { getUserProfile, getProfileImage, getUserId } from '../utils/profileUtils';
+import { createProfileTransition } from '../utils/profileTransition';
 
 const SidebarLink = ({ icon: Icon, text, active, onClick, to }) => (
     <Link 
@@ -45,14 +47,51 @@ const CollapsibleSection = ({ title, children }) => {
 // Core sidebar content
 const SidebarContent = ({ activeLink, setActiveLink, onLogout }) => {
     const Logo = MyLogo;
+    const navigate = useNavigate();
     const [user, setUser] = useState({ name: '', email: '' });
+    const [profileImage, setProfileImage] = useState('');
+    const profileTransition = createProfileTransition(navigate);
 
     useEffect(() => {
-        const userName = localStorage.getItem('userName');
-        const userEmail = localStorage.getItem('userEmail');
-        if (userName && userEmail) {
-            setUser({ name: userName, email: userEmail });
-        }
+        const loadUserData = () => {
+            // Load user profile data
+            const profile = getUserProfile();
+            if (profile) {
+                setUser({ 
+                    name: profile.name || 'User', 
+                    email: profile.email || '' 
+                });
+            } else {
+                // Fallback to legacy storage
+                const userName = localStorage.getItem('userName');
+                const userEmail = localStorage.getItem('userEmail');
+                if (userName && userEmail) {
+                    setUser({ name: userName, email: userEmail });
+                }
+            }
+            
+            // Load profile image
+            const userId = getUserId();
+            const userImage = getProfileImage(userId);
+            setProfileImage(userImage);
+        };
+        
+        loadUserData();
+        
+        // Listen for storage changes to update profile in real-time
+        const handleStorageChange = () => {
+            loadUserData();
+        };
+        
+        window.addEventListener('storage', handleStorageChange);
+        
+        // Also listen for custom profile update events
+        window.addEventListener('profileUpdated', handleStorageChange);
+        
+        return () => {
+            window.removeEventListener('storage', handleStorageChange);
+            window.removeEventListener('profileUpdated', handleStorageChange);
+        };
     }, []);
 
     return (
@@ -88,7 +127,20 @@ const SidebarContent = ({ activeLink, setActiveLink, onLogout }) => {
             </nav>
             <div className="mt-auto p-2 border-t border-slate-700/50">
                 <div className="flex items-center gap-3 p-2 rounded-lg">
-                    <img src={`https://i.pravatar.cc/150?u=${user.email}`} alt="User Avatar" className="w-10 h-10 rounded-full" />
+                    <button 
+                        onClick={(e) => {
+                            e.preventDefault();
+                            profileTransition(e.target.closest('img'));
+                        }}
+                        className="flex-shrink-0"
+                        title="Go to Profile"
+                    >
+                        <img 
+                            src={profileImage} 
+                            alt="User Avatar" 
+                            className="w-10 h-10 rounded-full object-cover border-2 border-slate-600 hover:border-blue-500 transition-colors cursor-pointer" 
+                        />
+                    </button>
                     <div className="flex-1 overflow-hidden">
                         <p className="text-sm font-medium text-white truncate">{user.name || 'User'}</p>
                         <p className="text-xs text-slate-400 truncate">{user.email}</p>

@@ -41,9 +41,13 @@ export type JicofoSummary = {
   };
 };
 
-// Configuration - Use proxy in development, direct in production
-const isDevelopment = process.env.NODE_ENV === 'development';
-const PROMETHEUS_BASE = isDevelopment ? '/prometheus' : 'https://meet.in8.com/prometheus';
+// Configuration - Prefer env override, else proxy in dev and direct in prod
+const isDevelopment = import.meta.env.MODE === 'development';
+const ENV_PROM_BASE = (import.meta as any)?.env?.VITE_PROMETHEUS_BASE_URL as string | undefined;
+const ENABLE_PROM_MOCK = ((import.meta as any)?.env?.VITE_ENABLE_PROM_MOCK === 'true');
+const PROMETHEUS_BASE = (ENV_PROM_BASE && ENV_PROM_BASE.trim())
+  ? ENV_PROM_BASE.trim()
+  : (isDevelopment ? '/prometheus' : 'https://meet.in8.com/prometheus');
 const BATCH_URL = `${PROMETHEUS_BASE}/api/v1/query?query=` + 
   encodeURIComponent('{__name__=~"jitsi_jicofo.*"}');
 
@@ -209,13 +213,13 @@ export async function fetchJicofoSummary(): Promise<JicofoSummary> {
       }
     };
   } catch (error) {
-    // In development, provide mock data for testing
-    if (isDevelopment) {
+    // Provide mock data only if explicitly enabled via env
+    if (ENABLE_PROM_MOCK) {
       console.warn('Prometheus endpoint not accessible, using mock data:', error);
       return createMockData();
     }
-    
-    // In production, re-throw the error
+
+    // Otherwise, surface the error to the UI
     throw error;
   }
 }

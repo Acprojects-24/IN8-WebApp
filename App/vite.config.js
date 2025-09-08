@@ -4,6 +4,7 @@ import basicSsl from '@vitejs/plugin-basic-ssl';
 
 export default defineConfig(({ mode }) => {
   const isDev = mode === 'development';
+  const PROM_BASE = process.env.VITE_PROMETHEUS_BASE_URL || 'https://meet.in8.com/prometheus';
 
   return {
 
@@ -22,8 +23,8 @@ export default defineConfig(({ mode }) => {
               target: 'http://localhost:5000',
               changeOrigin: true,
             },
-            'https://meet.in8.com/prometheus': {
-              target: 'https://meet.in8.com/prometheus',
+            '/prometheus': {
+              target: PROM_BASE,
               changeOrigin: true,
               rewrite: (path) => path.replace(/^\/prometheus/, ''),
             },
