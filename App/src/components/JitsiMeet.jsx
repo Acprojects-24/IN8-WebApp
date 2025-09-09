@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 
 // Keep a lightweight pool of Jitsi API instances keyed by roomName so brief unmounts
@@ -34,11 +34,15 @@ const JitsiMeet = React.memo(({
     noiseSuppressionEnabled,
     jwt,
     showToast,
+    webinarMode,
+    isHost,
+    onMeetingTerminated,
 }) => {
     const jitsiContainerRef = useRef(null);
     const apiRef = useRef(null);
     const joinedRef = useRef(false);
     const retriedRef = useRef(false);
+    const [currentUserIsModerator, setCurrentUserIsModerator] = useState(isHost);
 
     useEffect(() => {
         if (!jitsiContainerRef.current) return;
@@ -71,6 +75,27 @@ const JitsiMeet = React.memo(({
                 return;
             }
 
+            // Configure toolbar buttons based on webinar mode and user role
+            const getToolbarButtons = () => {
+                if (webinarMode && !currentUserIsModerator) {
+                    // In webinar mode, participants don't see mic/camera controls at all
+                    return [
+                        'closedcaptions', 'fullscreen', 'hangup', 'chat', 'raisehand', 
+                        'videoquality', 'filmstrip', 'feedback', 'stats', 'shortcuts', 
+                        'tileview', 'download', 'help'
+                    ];
+                }
+                // Default toolbar for moderators or normal meetings
+                return [
+                    'microphone', 'camera', 'closedcaptions', 'desktop', 'embedmeeting',
+                    'fullscreen', 'fodeviceselection', 'hangup', 'profile', 'chat', 'recording',
+                    'livestreaming', 'etherpad', 'sharedvideo', 'settings', 'raisehand',
+                    'videoquality', 'filmstrip', 'invite', 'feedback', 'stats', 'shortcuts',
+                    'tileview', 'videobackgroundblur', 'download', 'help', 'mute-everyone',
+                    'e2ee', 'security', 'participants-pane', 'whiteboard'
+                ];
+            };
+
             const options = {
                 roomName,
                 width: '100%',
@@ -87,6 +112,32 @@ const JitsiMeet = React.memo(({
                     enableClosePage: false,
                     disableInitialGUM: false,
                     requireDisplayName: false,
+                    // Webinar mode restrictions for participants
+                    ...(webinarMode && !currentUserIsModerator && {
+                        disableRemoteMute: true,
+                        disableInviteFunctions: true,
+                        disableShortcuts: true,
+                        disableProfile: true,
+                        disableRemoteControl: true,
+                        disableFilmstripAutohiding: true,
+                        // Participants can't change their own camera/mic in webinar mode
+                        disableCameraChange: true,
+                        disableMicrophoneChange: true,
+                        // Enable chat and hand raise for participants
+                        disableRaiseHand: false,
+                        disableChat: false,
+                        // Force participants to start muted in webinar mode
+                        startWithAudioMuted: true,
+                        startWithVideoMuted: true,
+                        // Disable self-unmuting for participants
+                        disableSelfView: false,
+                        enableUserRolesBasedOnToken: false,
+                        remoteVideoMenu: {
+                            disableKick: true,
+                            disableGrantModerator: true,
+                            disablePrivateChat: false, // Allow private chat
+                        }
+                    }),
                     noiseSuppression: {
                         enabled: noiseSuppressionEnabled,
                     },
@@ -96,6 +147,21 @@ const JitsiMeet = React.memo(({
                     DISPLAY_WELCOME_PAGE_CONTENT: false,
                     DISPLAY_WELCOME_PAGE_TOOLBAR_ADDITIONAL_CONTENT: false,
                     SHOW_CHROME_EXTENSION_BANNER: false,
+                    TOOLBAR_BUTTONS: getToolbarButtons(),
+                    // Additional webinar mode restrictions for participants
+                    ...(webinarMode && !currentUserIsModerator && {
+                        DISABLE_FOCUS_INDICATOR: true,
+                        DISABLE_DOMINANT_SPEAKER_INDICATOR: true,
+                        DISABLE_TRANSCRIPTION_SUBTITLES: true,
+                        DISABLE_RINGING: true,
+                        HIDE_INVITE_MORE_HEADER: true,
+                        DISABLE_JOIN_LEAVE_NOTIFICATIONS: true,
+                        DISABLE_PRESENCE_STATUS: true,
+                        HIDE_DEEP_LINKING_LOGO: true,
+                        SHOW_POWERED_BY: false,
+                        DISABLE_VIDEO_BACKGROUND: true,
+                        DISABLE_LOCAL_VIDEO_FLIP: true,
+                    }),
                 },
             };
             if (jwt) {
@@ -154,7 +220,7 @@ const JitsiMeet = React.memo(({
                 };
 
                 // Call immediately after successful API creation so the app can remove loaders
-                signalReady();
+                setTimeout(() => signalReady(), 100); // Small delay to ensure DOM is ready
 
                 // Also listen to events in case immediate signal is too early in some environments
                 apiRef.current.addEventListener('iframeReady', () => {
@@ -190,6 +256,15 @@ const JitsiMeet = React.memo(({
                         onMeetingEnd();
                     }
                 });
+
+                // Listen for meeting termination by admin/host
+                apiRef.current.addEventListener('videoConferenceTerminated', () => {
+                    if (onMeetingTerminated && typeof onMeetingTerminated === 'function') {
+                        onMeetingTerminated();
+                    } else if (onMeetingEnd && typeof onMeetingEnd === 'function') {
+                        onMeetingEnd();
+                    }
+                });
                 try {
                     apiRef.current.addEventListener('readyToClose', () => {
                         if (onMeetingEnd && typeof onMeetingEnd === 'function') {
@@ -211,24 +286,92 @@ const JitsiMeet = React.memo(({
                     }
                 });
 
+                // Listen for moderator role changes in webinar mode
+                if (webinarMode) {
+                    const handleParticipantRoleChanged = (event) => {
+                        try {
+                            const { id, role } = event;
+                            const myId = apiRef.current.myUserId && apiRef.current.myUserId();
+                            
+                            // Check if the role change is for the current user
+                            if (id === myId) {
+                                const isModerator = role === 'moderator';
+                                setCurrentUserIsModerator(isModerator || isHost);
+                                
+                                if (isModerator && !isHost) {
+                                    // User was promoted to moderator - update toolbar dynamically
+                                    const newToolbarButtons = [
+                                        'microphone', 'camera', 'closedcaptions', 'desktop', 'embedmeeting',
+                                        'fullscreen', 'fodeviceselection', 'hangup', 'profile', 'chat', 'recording',
+                                        'livestreaming', 'etherpad', 'sharedvideo', 'settings', 'raisehand',
+                                        'videoquality', 'filmstrip', 'invite', 'feedback', 'stats', 'shortcuts',
+                                        'tileview', 'videobackgroundblur', 'download', 'help', 'mute-everyone',
+                                        'e2ee', 'security', 'participants-pane', 'whiteboard'
+                                    ];
+                                    
+                                    try {
+                                        apiRef.current.executeCommand('overwriteConfig', {
+                                            interfaceConfigOverwrite: {
+                                                TOOLBAR_BUTTONS: newToolbarButtons,
+                                                // Remove webinar restrictions for new moderator
+                                                DISABLE_FOCUS_INDICATOR: false,
+                                                DISABLE_DOMINANT_SPEAKER_INDICATOR: false,
+                                                DISABLE_TRANSCRIPTION_SUBTITLES: false,
+                                                DISABLE_RINGING: false,
+                                                HIDE_INVITE_MORE_HEADER: false,
+                                                DISABLE_JOIN_LEAVE_NOTIFICATIONS: false,
+                                                DISABLE_PRESENCE_STATUS: false,
+                                                HIDE_DEEP_LINKING_LOGO: false,
+                                                SHOW_POWERED_BY: false,
+                                                DISABLE_VIDEO_BACKGROUND: false,
+                                                DISABLE_LOCAL_VIDEO_FLIP: false,
+                                            }
+                                        });
+                                        console.info('[Jitsi] User promoted to moderator in webinar mode - controls enabled');
+                                    } catch (configError) {
+                                        console.warn('[Jitsi] Could not update config after promotion:', configError);
+                                    }
+                                }
+                            }
+                        } catch (error) {
+                            console.warn('[Jitsi] Error handling participant role change:', error);
+                        }
+                    };
+
+                    try {
+                        apiRef.current.addEventListener('participantRoleChanged', handleParticipantRoleChanged);
+                    } catch (error) {
+                        console.warn('[Jitsi] Could not add participantRoleChanged listener:', error);
+                    }
+                }
+
                 // Provide a basic cleanup hook by removing listeners when the iframe is parked/disposed
                 try {
                     apiRef.current.addEventListener('readyToClose', () => {
-                        try { apiRef.current.removeEventListener('incomingMessage', chatHandler); } catch (_) {}
+                        console.log('[Jitsi] Ready to close event received');
                     });
-                } catch (_) {}
+                } catch (e) {
+                    console.warn('[Jitsi] Could not add readyToClose listener:', e);
+                }
             };
 
-            // Watchdog: if we don't join within 8s, recreate once
-            const retryTimer = setTimeout(() => {
+            // Fail timer to catch cases where the API never loads
+            const failTimer = setTimeout(() => {
                 if (!joinedRef.current && !retriedRef.current) {
+                    console.warn('[Jitsi] API load timeout, retrying once');
                     retriedRef.current = true;
                     try { apiRef.current && apiRef.current.dispose(); } catch (_) {}
                     if (createApi()) {
                         wireListeners();
                     }
+                } else if (!joinedRef.current) {
+                    // Even if we retried, signal ready to clear loading state
+                    console.warn('[Jitsi] Final timeout, signaling ready to clear loading');
+                    if (onApiReady && typeof onApiReady === 'function') {
+                        onApiReady(apiRef.current);
+                    }
                 }
-            }, 8000);
+            }, 12000); // Increased timeout
 
             wireListeners();
         };
@@ -240,22 +383,27 @@ const JitsiMeet = React.memo(({
         }
 
         return () => {
-            // Park the iframe so the API instance persists across unmounts
+            clearTimeout(failTimer);
             if (apiRef.current) {
                 try {
-                    const iframe = apiRef.current.getIFrame && apiRef.current.getIFrame();
-                    if (iframe) {
-                        const lot = getParkingLot();
-                        lot.appendChild(iframe);
+                    // For guest users or when explicitly ending, dispose immediately
+                    const isGuest = localStorage.getItem('joinAsGuest') === 'true';
+                    if (isGuest || window.location.pathname.includes('/guest/')) {
+                        console.log('[Jitsi] Disposing API for guest user');
+                        apiRef.current.dispose();
+                        jitsiInstancePool.delete(roomName);
+                    } else {
+                        // Park the iframe for regular users
+                        const iframe = apiRef.current.getIFrame && apiRef.current.getIFrame();
+                        if (iframe) {
+                            const lot = getParkingLot();
+                            try { lot.appendChild(iframe); } catch (_) {}
+                        }
                     }
-                    if (!jitsiInstancePool.has(roomName)) {
-                        jitsiInstancePool.set(roomName, { api: apiRef.current });
-                    }
-                } catch (_) {}
+                } catch (e) {
+                    console.warn('[Jitsi] Failed to handle cleanup on unmount', e);
+                }
             }
-            apiRef.current = null;
-            clearTimeout(failTimer);
-            // Do NOT remove the external_api.js script; keep it cached globally
         };
     }, [domain, roomName]);
 
@@ -288,6 +436,8 @@ JitsiMeet.propTypes = {
     noiseSuppressionEnabled: PropTypes.bool,
     jwt: PropTypes.string,
     showToast: PropTypes.func,
+    webinarMode: PropTypes.bool,
+    isHost: PropTypes.bool,
 };
 
 JitsiMeet.defaultProps = {
@@ -297,8 +447,10 @@ JitsiMeet.defaultProps = {
     startWithVideoMuted: false,
     startWithAudioMuted: false,
     prejoinPageEnabled: false,
-     noiseSuppressionEnabled: true,
-     jwt: undefined,
+    noiseSuppressionEnabled: true,
+    jwt: undefined,
+    webinarMode: false,
+    isHost: false,
 };
 
 export default JitsiMeet;

@@ -13,6 +13,9 @@ export default function GuestMeeting() {
   const [micOn, setMicOn] = useState(false);
   const [camOn, setCamOn] = useState(false);
 
+  // Detect if this is a webinar meeting from the URL path
+  const isWebinarMode = window.location.pathname.includes('/guest/webinar/');
+
   // Core logic remains the same
   const canJoin = useMemo(() => name.trim().length > 0, [name]);
 
@@ -22,7 +25,10 @@ export default function GuestMeeting() {
     localStorage.setItem('guestJoinAudio', String(micOn));
     localStorage.setItem('guestJoinVideo', String(camOn));
     localStorage.setItem('joinAsGuest', 'true');
-    navigate(`/meeting/${meetingId}`, { state: { guest: true } });
+    
+    // Navigate to the appropriate meeting URL based on webinar mode
+    const meetingPath = isWebinarMode ? `/meeting/webinar/${meetingId}` : `/meeting/${meetingId}`;
+    navigate(meetingPath, { state: { guest: true } });
   };
 
   // UI Component for the toggle buttons (updated to use correct icon names)

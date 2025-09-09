@@ -797,16 +797,28 @@ const MeetingDetailsForm = ({
                     animate={{ x: 0, opacity: 1 }}
                     transition={{ delay: 0.4 }}
                 >
-                    <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-400 transition-colors z-10" size={18} />
-                    <input 
-                        type="password" 
-                        name="meetingPassword" 
-                        placeholder="Set Password (Optional)" 
-                        value={formValues.meetingPassword} 
-                        onChange={handleInputChange} 
-                        className="w-full bg-slate-800/30 backdrop-blur-sm border border-slate-600/50 rounded-xl py-3 pl-12 pr-4 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all duration-300 hover:bg-slate-800/50" 
-                    />
-                    <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-blue-500/5 to-purple-500/5 opacity-0 group-focus-within:opacity-100 transition-opacity duration-300 pointer-events-none" />
+                    <div className="flex items-center justify-between p-4 bg-slate-800/30 backdrop-blur-sm border border-slate-600/50 rounded-xl hover:bg-slate-800/50 transition-all duration-300">
+                        <div className="flex items-center gap-3">
+                            <Presentation className="text-slate-400 group-hover:text-blue-400 transition-colors" size={18} />
+                            <div>
+                                <span className="text-white text-sm font-medium">Webinar Mode</span>
+                                <p className="text-slate-400 text-xs">Only moderators can use meeting controls</p>
+                            </div>
+                        </div>
+                        <motion.button 
+                            type="button"
+                            onClick={() => handleInputChange({ target: { name: 'webinarMode', value: !formValues.webinarMode } })} 
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${formValues.webinarMode ? 'bg-blue-500' : 'bg-slate-600'}`}
+                            whileTap={{ scale: 0.95 }}
+                        >
+                            <motion.span 
+                                animate={{ x: formValues.webinarMode ? 22 : 2 }} 
+                                transition={{ type: 'spring', stiffness: 500, damping: 25 }} 
+                                className="inline-block h-5 w-5 transform rounded-full bg-white shadow-lg" 
+                            />
+                        </motion.button>
+                    </div>
+                    <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-blue-500/5 to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
                 </motion.div>
                 {isScheduling && (
                     <motion.div 
@@ -941,24 +953,6 @@ const MeetingDetailsForm = ({
                                     {formValues.cameraEnabled ? 'ON' : 'OFF'}
                                 </span>
                             </motion.div>
-                            
-                            {/* Advanced Settings */}
-                            <motion.div className="flex flex-col items-center gap-1">
-                                <motion.button 
-                                    type="button" 
-                                    onClick={() => setIsSettingsOpen(true)} 
-                                    className="p-2.5 rounded-lg bg-slate-700/50 text-slate-400 hover:text-blue-400 hover:bg-slate-700 border border-slate-600/50 hover:border-blue-500/50 transition-all duration-300 backdrop-blur-sm" 
-                                    title="Advanced Settings"
-                                    whileHover={{ scale: 1.05, rotate: 45 }}
-                                    whileTap={{ scale: 0.95 }}
-                                    initial={{ y: 10, opacity: 0 }}
-                                    animate={{ y: 0, opacity: 1 }}
-                                    transition={{ delay: 1.0 }}
-                                >
-                                    <SettingsIcon size={16} />
-                                </motion.button>
-                                <span className="text-xs text-slate-500 font-medium">MORE</span>
-                            </motion.div>
                         </div>
                     </div>
                 </div>
@@ -1077,10 +1071,11 @@ const MeetingDetailsForm = ({
 const CreateMeeting = ({ onSubmit, isLoading, initialUserName, navigate }) => {
     const [view, setView] = useState('initial');
     const [formValues, setFormValues] = useState({
-        userName: initialUserName || '', meetingTitle: '', meetingPurpose: '', meetingPassword: '',
+        userName: initialUserName || '', meetingTitle: '', meetingPurpose: '', 
         scheduleDate: null, scheduleTime: null, micEnabled: true, cameraEnabled: true,
         // --- FIXED: Default waiting room is now false ---
         waitingRoomEnabled: false, 
+        webinarMode: false,
     });
     const [joinCode, setJoinCode] = useState('');
 
@@ -1093,7 +1088,7 @@ const CreateMeeting = ({ onSubmit, isLoading, initialUserName, navigate }) => {
         const finalDateTime = (isScheduling && formValues.scheduleDate && formValues.scheduleTime) ? new Date( formValues.scheduleDate.getFullYear(), formValues.scheduleDate.getMonth(), formValues.scheduleDate.getDate(), formValues.scheduleTime.getHours(), formValues.scheduleTime.getMinutes() ) : null;
         const formData = {
             name: formValues.meetingTitle || (isScheduling ? 'Scheduled Meeting' : 'Instant Meeting'), purpose: formValues.meetingPurpose,
-            password: formValues.meetingPassword, isScheduled: isScheduling, scheduledFor: finalDateTime, hostName: formValues.userName,
+            webinarMode: formValues.webinarMode, isScheduled: isScheduling, scheduledFor: finalDateTime, hostName: formValues.userName,
             startWithAudioMuted: !formValues.micEnabled, startWithVideoMuted: !formValues.cameraEnabled, 
             prejoinPageEnabled: formValues.waitingRoomEnabled,
         };
@@ -1236,6 +1231,9 @@ const MeetingPage = () => {
     const { meetingId } = useParams();
     const navigate = useNavigate();
     const role = (localStorage.getItem('role') || '').toLowerCase();
+    
+    // Detect webinar mode from URL path
+    const isWebinarMode = window.location.pathname.includes('/meeting/webinar/');
 
     const [isPageLoading, setIsPageLoading] = useState(!!meetingId);
     
@@ -1309,16 +1307,32 @@ const MeetingPage = () => {
             const user = session?.user || null;
             setCurrentUser(user);
             const storedUserName = localStorage.getItem('userName');
-            if (user) { setUserName(storedUserName || user.user_metadata?.full_name || 'User'); } 
-            else { setUserName('Guest'); }
+            const joinAsGuest = localStorage.getItem('joinAsGuest') === 'true';
+            
+            if (user) { 
+                setUserName(storedUserName || user.user_metadata?.full_name || 'User'); 
+            } else if (joinAsGuest && storedUserName) {
+                // For guests, use the stored name from guest page
+                setUserName(storedUserName);
+            } else { 
+                setUserName('Guest'); 
+            }
         })();
         const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
             if (!mounted) return;
             const user = session?.user || null;
             setCurrentUser(user);
             const storedUserName = localStorage.getItem('userName');
-            if (user) { setUserName(storedUserName || user.user_metadata?.full_name || 'User'); } 
-            else { setUserName('Guest'); }
+            const joinAsGuest = localStorage.getItem('joinAsGuest') === 'true';
+            
+            if (user) { 
+                setUserName(storedUserName || user.user_metadata?.full_name || 'User'); 
+            } else if (joinAsGuest && storedUserName) {
+                // For guests, use the stored name from guest page
+                setUserName(storedUserName);
+            } else { 
+                setUserName('Guest'); 
+            }
         });
         return () => { mounted = false; sub.subscription.unsubscribe(); };
     }, []);
@@ -1326,6 +1340,27 @@ const MeetingPage = () => {
     useEffect(() => {
         const initializePage = async () => {
             if (!meetingId) return;
+            
+            // Prevent duplicate initialization but allow retry after timeout
+            if (isPageLoading) {
+                console.log('[Meeting] Already initializing, checking if stuck');
+                // If we've been loading for more than 10 seconds, reset and try again
+                const loadingStartTime = Date.now() - 10000; // 10 seconds ago
+                if (window.meetingLoadingStartTime && window.meetingLoadingStartTime < loadingStartTime) {
+                    console.warn('[Meeting] Loading stuck, resetting and retrying');
+                    setIsPageLoading(false);
+                    setIsJitsiLoading(false);
+                    window.meetingLoadingStartTime = null;
+                } else {
+                    return;
+                }
+            }
+            
+            // Track loading start time
+            if (!window.meetingLoadingStartTime) {
+                window.meetingLoadingStartTime = Date.now();
+            }
+            
             // If we're already in this meeting and have an API instance, do not
             // re-run the heavy init. This avoids loader flicker on tab focus or
             // background auth refreshes that update currentUser.
@@ -1336,6 +1371,25 @@ const MeetingPage = () => {
 
             const joinAsGuest = localStorage.getItem('joinAsGuest') === 'true';
             const storedGuestName = localStorage.getItem('userName') || 'Guest';
+            
+            // For guests, use the exact name they entered on the guest page
+            const effectiveDisplayName = joinAsGuest ? storedGuestName : userName;
+
+            // Check if user has auth token or is joining as guest
+            // Add delay to prevent race conditions with auth state
+            if (!currentUser && !joinAsGuest) {
+                // Wait a bit for auth state to settle before redirecting
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                // Double check after delay
+                const finalJoinAsGuest = localStorage.getItem('joinAsGuest') === 'true';
+                if (!currentUser && !finalJoinAsGuest) {
+                    console.info('[Meeting] No auth token found, redirecting to guest page');
+                    const guestPath = isWebinarMode ? `/guest/webinar/${meetingId}` : `/guest/${meetingId}`;
+                    navigate(guestPath, { replace: true });
+                    return;
+                }
+            }
 
             setIsPageLoading(true);
             try {
@@ -1364,10 +1418,16 @@ const MeetingPage = () => {
                     console.info('[Meeting] Role resolved', { isUserTheHost });
                     setActiveMeeting({
                         id: meetingId,
-                        displayName: userName,
+                        displayName: effectiveDisplayName,
                         ...meetingData,
                         isHost: isUserTheHost
                     });
+                    setIsPageLoading(true);
+                    setIsJitsiLoading(true); // Ensure Jitsi loading is also set
+                    
+                    // Clear loading start time when successfully setting up meeting
+                    window.meetingLoadingStartTime = null;
+                    
                     // Join gating & JWT
                     if (isUserTheHost) {
                         console.info('[Meeting] Generating admin JWT…');
@@ -1399,9 +1459,11 @@ const MeetingPage = () => {
                     }
                 } else {
                     console.warn('[Meeting] Meeting fetch failed or not found', { error });
-                    if (!currentUser) {
+                    if (!currentUser && !joinAsGuest) {
                         // Non-guest anonymous hit (no joinAsGuest flag): send to guest page
-                        navigate(`/guest/${meetingId}`, { replace: true });
+                        // Check if this is a webinar meeting and preserve the webinar path
+                        const guestPath = isWebinarMode ? `/guest/webinar/${meetingId}` : `/guest/${meetingId}`;
+                        navigate(guestPath, { replace: true });
                     } else {
                         showToast({ title: 'Error', message: 'Meeting not found.', type: 'error' });
                         navigate(role === 'admin' ? '/meeting' : '/home');
@@ -1500,8 +1562,9 @@ const MeetingPage = () => {
         const fallbackTimer = setTimeout(() => {
             console.warn('[Meeting] Fallback timeout reached, clearing loading state');
             setIsJitsiLoading(false);
+            setIsPageLoading(false); // Also clear page loading
             clearInterval(checkInterval);
-        }, 5000); // 7 seconds fallback
+        }, 8000); // 8 seconds fallback
         
         return () => {
             clearTimeout(fallbackTimer);
@@ -1988,24 +2051,33 @@ useEffect(() => {
         try {
             const hostToken = uuidv4();
 
+            // Prepare meeting data with robust error handling
+            const meetingData = {
+                name: formData.name,
+                purpose: formData.purpose || null,
+                is_scheduled: !!formData.isScheduled,
+                scheduled_for: formData.scheduledFor ? new Date(formData.scheduledFor).toISOString() : null,
+                host_name: formData.hostName || null,
+                start_with_audio_muted: !!formData.startWithAudioMuted,
+                start_with_video_muted: !!formData.startWithVideoMuted,
+                prejoin_page_enabled: !!formData.prejoinPageEnabled,
+                created_by: currentUser.id,
+                host_token: hostToken,
+            };
+
+            // Add webinar_mode only if explicitly enabled (graceful fallback)
+            if (formData.webinarMode) {
+                meetingData.webinar_mode = true;
+            }
+
             const { data, error } = await supabase.from('meetings')
-                .insert([{
-                    name: formData.name,
-                    purpose: formData.purpose || null,
-                    password: formData.password || null,
-                    is_scheduled: !!formData.isScheduled,
-                    scheduled_for: formData.scheduledFor ? new Date(formData.scheduledFor).toISOString() : null,
-                    host_name: formData.hostName || null,
-                    start_with_audio_muted: !!formData.startWithAudioMuted,
-                    start_with_video_muted: !!formData.startWithVideoMuted,
-                    prejoin_page_enabled: !!formData.prejoinPageEnabled,
-                    created_by: currentUser.id,
-                    host_token: hostToken,
-                }])
+                .insert([meetingData])
                 .select('id')
                 .single();
             if (error || !data?.id) throw error || new Error('Meeting creation failed');
-            const link = `${window.location.origin}/meeting/${data.id}`;
+            const link = formData.webinarMode 
+                ? `${window.location.origin}/meeting/webinar/${data.id}`
+                : `${window.location.origin}/meeting/${data.id}`;
             
             // ADDED: 3. Save the token in localStorage, associated with the new meeting ID
             localStorage.setItem(`hostToken_${data.id}`, hostToken);
@@ -2016,8 +2088,11 @@ useEffect(() => {
             // Always show share modal first; user explicitly starts when ready
             setIsShareModalOpen(true);
         } catch (error) {
-            console.error("Error creating meeting: ", error);
-            showToast({ title: 'Error', message: 'Failed to create meeting.', type: 'error' });
+            console.error("Error creating meeting:", error);
+            console.error("Form data attempted:", formData);
+            console.error("Meeting data prepared:", meetingData);
+            const errorMessage = error.message || error.details || 'Unknown database error';
+            showToast({ title: 'Error', message: `Failed to create meeting: ${errorMessage}`, type: 'error' });
         } finally {
             setIsLoading(false);
         }
@@ -2078,14 +2153,116 @@ useEffect(() => {
     };
 
     const handleEndMeeting = useCallback(() => {
+        console.log('[Meeting] handleEndMeeting called');
+        
+        // Prevent multiple calls
+        if (!activeMeeting) {
+            console.log('[Meeting] Already ended, skipping');
+            return;
+        }
+        
         showToast({ title: 'Meeting Ended', message: 'You have left the meeting.', type: 'info' });
-        localStorage.removeItem('joinAsGuest');
-        localStorage.removeItem('guestJoinAudio');
-        localStorage.removeItem('guestJoinVideo');
+        
+        // Determine redirect path based on user type
+        const isGuest = localStorage.getItem('joinAsGuest') === 'true';
+        const isAdmin = role === 'admin';
+        
+        // Clean up Jitsi API first to prevent stuck state
+        try {
+            if (jitsiApi) {
+                console.log('[Meeting] Disposing Jitsi API');
+                jitsiApi.dispose();
+            }
+        } catch (error) {
+            console.warn('[Meeting] Error disposing Jitsi API:', error);
+        }
+        
+        // Clear state immediately
         setActiveMeeting(null);
         setJitsiApi(null);
-        navigate('/meeting');
-    }, [navigate]);
+        setIsJitsiLoading(false);
+        setCanJoinMeeting(false);
+        setIsWaitingForHost(false);
+        
+        // Clean up guest-related localStorage
+        if (isGuest) {
+            localStorage.removeItem('joinAsGuest');
+            localStorage.removeItem('guestJoinAudio');
+            localStorage.removeItem('guestJoinVideo');
+        }
+        
+        // Use setTimeout to prevent navigation conflicts
+        setTimeout(() => {
+            // Redirect based on user type
+            if (isGuest) {
+                // Guest users go back to guest join page
+                const guestPath = isWebinarMode ? `/guest/webinar/${meetingId}` : `/guest/${meetingId}`;
+                navigate(guestPath, { replace: true });
+            } else if (isAdmin) {
+                // Admin users go to meeting page
+                navigate('/meeting', { replace: true });
+            } else {
+                // Logged-in users go to home page
+                navigate('/home', { replace: true });
+            }
+        }, 100);
+    }, [navigate, role, isWebinarMode, meetingId, activeMeeting, jitsiApi]);
+
+    const handleMeetingTerminated = useCallback(() => {
+        console.log('[Meeting] handleMeetingTerminated called');
+        
+        // Prevent multiple calls
+        if (!activeMeeting) {
+            console.log('[Meeting] Already terminated, skipping');
+            return;
+        }
+        
+        showToast({ title: 'Meeting Terminated', message: 'The meeting has been ended by the host.', type: 'warning' });
+        
+        // Determine redirect path based on user type
+        const isGuest = localStorage.getItem('joinAsGuest') === 'true';
+        const isAdmin = role === 'admin';
+        
+        // Clean up Jitsi API first to prevent stuck state
+        try {
+            if (jitsiApi) {
+                console.log('[Meeting] Disposing Jitsi API on termination');
+                jitsiApi.dispose();
+            }
+        } catch (error) {
+            console.warn('[Meeting] Error disposing Jitsi API on termination:', error);
+        }
+        
+        // Clear state immediately
+        setActiveMeeting(null);
+        setJitsiApi(null);
+        setIsJitsiLoading(false);
+        setCanJoinMeeting(false);
+        setIsWaitingForHost(false);
+        
+        // Clean up guest-related localStorage
+        if (isGuest) {
+            localStorage.removeItem('joinAsGuest');
+            localStorage.removeItem('guestJoinAudio');
+            localStorage.removeItem('guestJoinVideo');
+        }
+        
+        // Use setTimeout to prevent navigation conflicts
+        setTimeout(() => {
+            // Redirect based on user type - same logic as handleEndMeeting
+            if (isGuest) {
+                // Guest users go back to guest join page
+                const guestPath = isWebinarMode ? `/guest/webinar/${meetingId}` : `/guest/${meetingId}`;
+                navigate(guestPath, { replace: true });
+            } else if (isAdmin) {
+                // Admin users go to meeting page
+                navigate('/meeting', { replace: true });
+            } else {
+                // Logged-in users go to home page
+                navigate('/home', { replace: true });
+            }
+        }, 100);
+    }, [navigate, role, isWebinarMode, meetingId, activeMeeting, jitsiApi]);
 
     if (isPageLoading) {
         return <LoadingScreen />;
@@ -2095,7 +2272,7 @@ useEffect(() => {
 
         <div className="flex h-screen relative z-10 overflow-hidden bg-slate-950">
             <div className="fixed top-5 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-5 w-full max-w-sm px-4 sm:px-0 z-[60]"><AnimatePresence>{activeToast && <Toast key={activeToast.id} toast={activeToast} onClose={() => setActiveToast(null)} />}</AnimatePresence></div>
-            <AnimatePresence>{isShareModalOpen && <ShareModal meetingLink={newMeetingLink} onClose={() => setIsShareModalOpen(false)} onStart={() => { setIsShareModalOpen(false); if (newMeetingLink) { const id = newMeetingLink.split('/').pop(); navigate(`/meeting/${id}`); } }} />}</AnimatePresence>
+            <AnimatePresence>{isShareModalOpen && <ShareModal meetingLink={newMeetingLink} onClose={() => setIsShareModalOpen(false)} onStart={() => { setIsShareModalOpen(false); if (newMeetingLink) { const urlPath = new URL(newMeetingLink).pathname; navigate(urlPath); } }} />}</AnimatePresence>
 
             <AnimatePresence>
               {viewScheduleModal && (
@@ -2688,6 +2865,7 @@ useEffect(() => {
         displayName={activeMeeting.displayName || userName}
         password={activeMeeting.password} 
         onMeetingEnd={handleEndMeeting} 
+        onMeetingTerminated={handleMeetingTerminated}
         onApiReady={handleApiReady}
         startWithVideoMuted={(() => { const g = localStorage.getItem('joinAsGuest') === 'true'; if (!g) return activeMeeting.startWithVideoMuted; const videoOn = localStorage.getItem('guestJoinVideo') === 'true'; return !videoOn; })()}
         startWithAudioMuted={(() => { const g = localStorage.getItem('joinAsGuest') === 'true'; if (!g) return activeMeeting.startWithAudioMuted; const audioOn = localStorage.getItem('guestJoinAudio') === 'true'; return !audioOn; })()}
@@ -2695,6 +2873,8 @@ useEffect(() => {
         showToast={showToast}
         noiseSuppressionEnabled={true} 
         jwt={adminJwt}
+        webinarMode={activeMeeting.webinar_mode || false}
+        isHost={activeMeeting.isHost || false}
 />
 </div>
             )}

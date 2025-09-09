@@ -567,7 +567,7 @@ const HomePage = () => {
     const [newMeetingForm, setNewMeetingForm] = useState({
         meetingTitle: '',
         meetingPurpose: '',
-        meetingPassword: '',
+        webinarMode: false,
         micEnabled: true,
         cameraEnabled: true,
         waitingRoomEnabled: false,
@@ -579,7 +579,7 @@ const HomePage = () => {
     const [scheduleForm, setScheduleForm] = useState({
         meetingTitle: '',
         meetingPurpose: '',
-        meetingPassword: '',
+        webinarMode: false,
         scheduleDate: '',
         scheduleTime: '',
         micEnabled: true,
@@ -649,20 +649,27 @@ const HomePage = () => {
         if (!currentUser) { alert('You must be logged in to start a meeting.'); return; }
         try {
             const hostToken = uuidv4();
+            // Prepare meeting data with fallback for webinar_mode
+            const meetingData = {
+                name: newMeetingForm.meetingTitle || `Instant Meeting - ${new Date().toLocaleDateString()}`,
+                purpose: newMeetingForm.meetingPurpose || 'Quick call',
+                is_scheduled: false,
+                scheduled_for: null,
+                host_name: userName,
+                start_with_audio_muted: !newMeetingForm.micEnabled,
+                start_with_video_muted: !newMeetingForm.cameraEnabled,
+                prejoin_page_enabled: newMeetingForm.waitingRoomEnabled || false,
+                created_by: currentUser.id,
+                host_token: hostToken,
+            };
+
+            // Add webinar_mode if it's enabled (graceful fallback)
+            if (newMeetingForm.webinarMode) {
+                meetingData.webinar_mode = true;
+            }
+
             const { data, error } = await supabase.from('meetings')
-                .insert([{
-                    name: newMeetingForm.meetingTitle || `Instant Meeting - ${new Date().toLocaleDateString()}`,
-                    purpose: newMeetingForm.meetingPurpose || 'Quick call',
-                    password: newMeetingForm.meetingPassword || null,
-                    is_scheduled: false,
-                    scheduled_for: null,
-                    host_name: userName,
-                    start_with_audio_muted: !newMeetingForm.micEnabled,
-                    start_with_video_muted: !newMeetingForm.cameraEnabled,
-                    prejoin_page_enabled: newMeetingForm.waitingRoomEnabled,
-                    created_by: currentUser.id,
-                    host_token: hostToken,
-                }])
+                .insert([meetingData])
                 .select('id')
                 .single();
             if (error) throw error;
@@ -677,7 +684,7 @@ const HomePage = () => {
             setNewMeetingForm({
                 meetingTitle: '',
                 meetingPurpose: '',
-                meetingPassword: '',
+                webinarMode: false,
                 micEnabled: true,
                 cameraEnabled: true,
                 waitingRoomEnabled: false,
@@ -686,8 +693,16 @@ const HomePage = () => {
             
             navigate(`/meeting/${data.id}`);
         } catch (e) {
-            console.error('Failed to create meeting', e);
-            alert('Failed to create meeting');
+            console.error('Failed to create meeting:', e);
+            console.error('Meeting data attempted:', {
+                title: newMeetingForm.meetingTitle,
+                purpose: newMeetingForm.meetingPurpose,
+                webinarMode: newMeetingForm.webinarMode,
+                micEnabled: newMeetingForm.micEnabled,
+                cameraEnabled: newMeetingForm.cameraEnabled,
+                waitingRoomEnabled: newMeetingForm.waitingRoomEnabled
+            });
+            alert(`Failed to create meeting: ${e.message || 'Unknown error'}`);
         }
     };
 
@@ -1063,12 +1078,21 @@ const HomePage = () => {
                                         className="w-full bg-slate-900/60 border border-slate-700/70 rounded-lg py-2.5 px-3.5 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/40 transition" 
                                         placeholder="Purpose (optional)" 
                                     />
-                                    <input 
-                                        value={newMeetingForm.meetingPassword} 
-                                        onChange={(e) => setNewMeetingForm(v => ({...v, meetingPassword: e.target.value}))} 
-                                        className="w-full bg-slate-900/60 border border-slate-700/70 rounded-lg py-2.5 px-3.5 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/40 transition" 
-                                        placeholder="Meeting password (optional)" 
-                                    />
+                                    <div className="flex items-center justify-between gap-3 bg-slate-900/60 border border-slate-700/70 rounded-lg px-3 py-2.5">
+                                        <div className="flex items-center gap-3">
+                                            <Presentation className="text-slate-400" size={18} />
+                                            <div>
+                                                <span className="text-white text-sm font-medium">Webinar Mode</span>
+                                                <p className="text-slate-400 text-xs">Only moderators can use meeting controls</p>
+                                            </div>
+                                        </div>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={newMeetingForm.webinarMode || false} 
+                                            onChange={(e) => setNewMeetingForm(v => ({...v, webinarMode: e.target.checked}))} 
+                                            className="w-4 h-4 text-blue-600 bg-slate-700 border-slate-600 rounded focus:ring-blue-500 focus:ring-2" 
+                                        />
+                                    </div>
                                     
                                     <div className="space-y-3">
                                         <h3 className="text-sm font-semibold text-white">Meeting Options</h3>
@@ -1344,13 +1368,19 @@ const HomePage = () => {
                                             </div>
                                         </div>
                                         
-                                        <div>
-                                            <label className="block text-sm font-medium text-slate-300 mb-2">Password (Optional)</label>
+                                        <div className="flex items-center justify-between gap-3 bg-slate-900/60 border border-slate-700/70 rounded-lg px-3 py-2.5">
+                                            <div className="flex items-center gap-3">
+                                                <Presentation className="text-slate-400" size={18} />
+                                                <div>
+                                                    <span className="text-white text-sm font-medium">Webinar Mode</span>
+                                                    <p className="text-slate-400 text-xs">Only moderators can use meeting controls</p>
+                                                </div>
+                                            </div>
                                             <input 
-                                                value={scheduleForm.meetingPassword} 
-                                                onChange={(e) => setScheduleForm(v => ({...v, meetingPassword: e.target.value}))} 
-                                                className="w-full bg-slate-900/60 border border-slate-700/70 rounded-lg py-2.5 px-3.5 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500/40 transition" 
-                                                placeholder="Secure your meeting" 
+                                                type="checkbox" 
+                                                checked={scheduleForm.webinarMode || false} 
+                                                onChange={(e) => setScheduleForm(v => ({...v, webinarMode: e.target.checked}))} 
+                                                className="w-4 h-4 text-emerald-600 bg-slate-700 border-slate-600 rounded focus:ring-emerald-500 focus:ring-2" 
                                             />
                                         </div>
                                     </div>
@@ -1425,20 +1455,27 @@ const HomePage = () => {
                                                     const scheduledDate = new Date(`${scheduleForm.scheduleDate}T${scheduleForm.scheduleTime}`);
                                                     const hostToken = uuidv4();
                                                     
+                                                    // Prepare scheduled meeting data with fallback
+                                                    const scheduledMeetingData = {
+                                                        name: scheduleForm.meetingTitle,
+                                                        purpose: scheduleForm.meetingPurpose || null,
+                                                        is_scheduled: true,
+                                                        scheduled_for: scheduledDate.toISOString(),
+                                                        host_name: userName,
+                                                        start_with_audio_muted: !scheduleForm.micEnabled,
+                                                        start_with_video_muted: !scheduleForm.cameraEnabled,
+                                                        prejoin_page_enabled: scheduleForm.waitingRoomEnabled || false,
+                                                        created_by: currentUser.id,
+                                                        host_token: hostToken,
+                                                    };
+
+                                                    // Add webinar_mode if enabled (graceful fallback)
+                                                    if (scheduleForm.webinarMode) {
+                                                        scheduledMeetingData.webinar_mode = true;
+                                                    }
+
                                                     const { data, error } = await supabase.from('meetings')
-                                                        .insert([{
-                                                            name: scheduleForm.meetingTitle,
-                                                            purpose: scheduleForm.meetingPurpose || null,
-                                                            password: scheduleForm.meetingPassword || null,
-                                                            is_scheduled: true,
-                                                            scheduled_for: scheduledDate.toISOString(),
-                                                            host_name: userName,
-                                                            start_with_audio_muted: !scheduleForm.micEnabled,
-                                                            start_with_video_muted: !scheduleForm.cameraEnabled,
-                                                            prejoin_page_enabled: scheduleForm.waitingRoomEnabled,
-                                                            created_by: currentUser.id,
-                                                            host_token: hostToken,
-                                                        }])
+                                                        .insert([scheduledMeetingData])
                                                         .select('id')
                                                         .single();
                                                     
