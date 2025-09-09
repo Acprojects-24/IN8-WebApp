@@ -18,6 +18,46 @@ import JitsiMeet from '../components/JitsiMeet';
 import { createAdminJwt } from '../utils/jwt';
 import { supabase } from '../supabase';
 
+// Debug mode for testing (set to true for detailed logging)
+const DEBUG_MODE = false;
+
+// Utility function to validate and parse meeting URLs
+const validateMeetingAccess = (meetingId, currentPath) => {
+    // Basic meetingId validation
+    if (!meetingId || typeof meetingId !== 'string') {
+        return { isValid: false, error: 'Invalid meeting ID' };
+    }
+    
+    // Remove any extra whitespace or special characters
+    const cleanMeetingId = meetingId.trim();
+    
+    if (cleanMeetingId.length < 1) {
+        return { isValid: false, error: 'Meeting ID cannot be empty' };
+    }
+    
+    // Check if it's a valid UUID format (basic check)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(cleanMeetingId)) {
+        console.warn('[Meeting] Non-UUID meeting ID detected:', cleanMeetingId);
+        // Allow non-UUID IDs but log warning
+    }
+    
+    // Validate current path structure
+    const isWebinarPath = currentPath.includes('/meeting/webinar/');
+    const isRegularPath = currentPath.includes('/meeting/') && !isWebinarPath;
+    
+    if (!isWebinarPath && !isRegularPath) {
+        return { isValid: false, error: 'Invalid meeting URL structure' };
+    }
+    
+    return { 
+        isValid: true, 
+        cleanMeetingId, 
+        isWebinar: isWebinarPath,
+        urlType: isWebinarPath ? 'webinar' : 'regular'
+    };
+};
+
 
 const LoadingScreen = () => {
     return (
@@ -1337,151 +1377,257 @@ const MeetingPage = () => {
         return () => { mounted = false; sub.subscription.unsubscribe(); };
     }, []);
 
+    // Simplified and reliable meeting initialization
     useEffect(() => {
-        const initializePage = async () => {
+        const initializeMeeting = async () => {
             if (!meetingId) return;
             
-            // Prevent duplicate initialization but allow retry after timeout
-            if (isPageLoading) {
-                console.log('[Meeting] Already initializing, checking if stuck');
-                // If we've been loading for more than 10 seconds, reset and try again
-                const loadingStartTime = Date.now() - 10000; // 10 seconds ago
-                if (window.meetingLoadingStartTime && window.meetingLoadingStartTime < loadingStartTime) {
-                    console.warn('[Meeting] Loading stuck, resetting and retrying');
-                    setIsPageLoading(false);
-                    setIsJitsiLoading(false);
-                    window.meetingLoadingStartTime = null;
-                } else {
-                    return;
-                }
+            console.log('[Meeting] Starting initialization for meetingId:', meetingId);
+            if (DEBUG_MODE) console.log('[DEBUG] Current user state:', { currentUser: !!currentUser, userName, role, isWebinarMode });
+            
+            // Step 0: Validate meeting URL and ID
+            const validation = validateMeetingAccess(meetingId, window.location.pathname);
+            if (!validation.isValid) {
+                console.error('[Meeting] URL validation failed:', validation.error);
+                showToast({ 
+                    title: 'Invalid Meeting Link', 
+                    message: validation.error, 
+                    type: 'error' 
+                });
+                navigate(role === 'admin' ? '/meeting' : '/home');
+                return;
             }
             
-            // Track loading start time
-            if (!window.meetingLoadingStartTime) {
-                window.meetingLoadingStartTime = Date.now();
-            }
+            console.log('[Meeting] URL validation passed:', validation);
             
-            // If we're already in this meeting and have an API instance, do not
-            // re-run the heavy init. This avoids loader flicker on tab focus or
-            // background auth refreshes that update currentUser.
-            if (activeMeeting?.id === meetingId && jitsiApi) {
+            // Prevent duplicate initialization
+            if (activeMeeting?.id === validation.cleanMeetingId && jitsiApi) {
+                console.log('[Meeting] Already initialized for this meeting');
                 setIsPageLoading(false);
                 return;
             }
 
-            const joinAsGuest = localStorage.getItem('joinAsGuest') === 'true';
-            const storedGuestName = localStorage.getItem('userName') || 'Guest';
-            
-            // For guests, use the exact name they entered on the guest page
-            const effectiveDisplayName = joinAsGuest ? storedGuestName : userName;
-
-            // Check if user has auth token or is joining as guest
-            // Add delay to prevent race conditions with auth state
-            if (!currentUser && !joinAsGuest) {
-                // Wait a bit for auth state to settle before redirecting
-                await new Promise(resolve => setTimeout(resolve, 100));
-                
-                // Double check after delay
-                const finalJoinAsGuest = localStorage.getItem('joinAsGuest') === 'true';
-                if (!currentUser && !finalJoinAsGuest) {
-                    console.info('[Meeting] No auth token found, redirecting to guest page');
-                    const guestPath = isWebinarMode ? `/guest/webinar/${meetingId}` : `/guest/${meetingId}`;
-                    navigate(guestPath, { replace: true });
-                    return;
-                }
-            }
-
             setIsPageLoading(true);
+            setIsJitsiLoading(false);
+            setCanJoinMeeting(false);
+            setIsWaitingForHost(false);
+
             try {
-                console.info('[Meeting] Fetching meeting row', { meetingId });
+                // Step 1: Determine user identity and access method
+                const joinAsGuest = localStorage.getItem('joinAsGuest') === 'true';
+                const storedGuestName = localStorage.getItem('userName') || 'Guest';
+                
+                let userIdentity = {
+                    isGuest: joinAsGuest,
+                    displayName: joinAsGuest ? storedGuestName : (userName || 'User'),
+                    currentUser: currentUser
+                };
+
+                // Step 2: Handle authentication requirements with timeout
+                if (!currentUser && !joinAsGuest) {
+                    console.log('[Meeting] No authentication found, checking with brief delay...');
+                    
+                    // Wait a short time for auth state to settle
+                    await new Promise(resolve => setTimeout(resolve, 150));
+                    
+                    // Recheck authentication after delay
+                    const finalJoinAsGuest = localStorage.getItem('joinAsGuest') === 'true';
+                    const { data: { session } } = await supabase.auth.getSession();
+                    
+                    if (!session?.user && !finalJoinAsGuest) {
+                        console.log('[Meeting] Redirecting to guest page for meeting access');
+                        const guestPath = isWebinarMode ? `/guest/webinar/${meetingId}` : `/guest/${meetingId}`;
+                        navigate(guestPath, { replace: true });
+                        return;
+                    } else if (session?.user) {
+                        console.log('[Meeting] Found session after delay, updating user state');
+                        userIdentity.currentUser = session.user;
+                        userIdentity.isGuest = false;
+                        if (!userIdentity.displayName || userIdentity.displayName === 'User') {
+                            userIdentity.displayName = session.user.user_metadata?.full_name || 'User';
+                        }
+                    }
+                }
+
+                // Step 3: Fetch meeting data using validated ID
+                console.log('[Meeting] Fetching meeting data for validated ID:', validation.cleanMeetingId);
                 const { data: meetingData, error } = await supabase
                     .from('meetings')
                     .select('*')
-                    .eq('id', meetingId)
+                    .eq('id', validation.cleanMeetingId)
                     .single();
-                if (!error && meetingData) {
-                    console.info('[Meeting] Meeting row loaded', { hasHostPid: !!meetingData.host_participant_id, isScheduled: meetingData.is_scheduled });
-                    
-                    const banned = Array.isArray(meetingData.banned_display_names) ? meetingData.banned_display_names : [];
-                    const myName = (userName || 'Guest').trim().toLowerCase();
-                    const isBanned = banned.some(n => (n || '').trim().toLowerCase() === myName);
-                    if (isBanned) {
-                        showToast({ title: 'Access denied', message: 'You have been removed from this meeting.', type: 'error' });
-                        navigate(role === 'admin' ? '/meeting' : '/home');
-                        setIsPageLoading(false);
-                        return;
-                    }
 
-                    const localHostToken = localStorage.getItem(`hostToken_${meetingId}`);
-                    const isUserTheHost = !!(localHostToken && localHostToken === meetingData.host_token);
-
-                    console.info('[Meeting] Role resolved', { isUserTheHost });
-                    setActiveMeeting({
-                        id: meetingId,
-                        displayName: effectiveDisplayName,
-                        ...meetingData,
-                        isHost: isUserTheHost
-                    });
-                    setIsPageLoading(true);
-                    setIsJitsiLoading(true); // Ensure Jitsi loading is also set
-                    
-                    // Clear loading start time when successfully setting up meeting
-                    window.meetingLoadingStartTime = null;
-                    
-                    // Join gating & JWT
-                    if (isUserTheHost) {
-                        console.info('[Meeting] Generating admin JWT…');
-                        setCanJoinMeeting(true);
-                        setIsWaitingForHost(false);
-                        if (!adminJwt) {
-                            try {
-                                const token = await createAdminJwt({ name: userName, email: currentUser?.email, avatar: currentUser?.user_metadata?.avatar_url });
-                                setAdminJwt(token);
-                                console.info('[Meeting] Admin JWT ready');
-                            } catch (e) {
-                                console.error('Failed to create admin JWT:', e);
-                            }
-                        }
-                        if (!jitsiApi) setIsJitsiLoading(true);
-                    } else {
-                        setAdminJwt(undefined);
-                        if (meetingData.host_participant_id) {
-                            console.info('[Meeting] Host already present; allowing join');
-                            setCanJoinMeeting(true);
-                            setIsWaitingForHost(false);
-                            if (!jitsiApi) setIsJitsiLoading(true);
-                        } else {
-                            console.info('[Meeting] Waiting for host to join…');
-                            setCanJoinMeeting(false);
-                            setIsWaitingForHost(true);
-                            setIsJitsiLoading(false);
-                        }
-                    }
-                } else {
-                    console.warn('[Meeting] Meeting fetch failed or not found', { error });
+                if (error || !meetingData) {
+                    console.error('[Meeting] Failed to fetch meeting:', error);
                     if (!currentUser && !joinAsGuest) {
-                        // Non-guest anonymous hit (no joinAsGuest flag): send to guest page
-                        // Check if this is a webinar meeting and preserve the webinar path
                         const guestPath = isWebinarMode ? `/guest/webinar/${meetingId}` : `/guest/${meetingId}`;
                         navigate(guestPath, { replace: true });
                     } else {
-                        showToast({ title: 'Error', message: 'Meeting not found.', type: 'error' });
+                        showToast({ title: 'Error', message: 'Meeting not found or access denied.', type: 'error' });
                         navigate(role === 'admin' ? '/meeting' : '/home');
                     }
+                    return;
                 }
+
+                console.log('[Meeting] Meeting data loaded successfully');
+
+                // Step 4: Check for bans
+                const banned = Array.isArray(meetingData.banned_display_names) ? meetingData.banned_display_names : [];
+                const normalizedName = userIdentity.displayName.trim().toLowerCase();
+                const isBanned = banned.some(name => (name || '').trim().toLowerCase() === normalizedName);
+                
+                if (isBanned) {
+                    showToast({ title: 'Access Denied', message: 'You have been removed from this meeting.', type: 'error' });
+                    navigate(role === 'admin' ? '/meeting' : '/home');
+                    return;
+                }
+
+                // Step 5: Determine user role (host vs participant)
+                const localHostToken = localStorage.getItem(`hostToken_${validation.cleanMeetingId}`);
+                const isHost = !!(localHostToken && localHostToken === meetingData.host_token);
+                
+                console.log('[Meeting] Role determined:', { isHost, hasLocalToken: !!localHostToken, meetingId: validation.cleanMeetingId });
+
+                // Step 6: Set up meeting object
+                const meetingConfig = {
+                    id: validation.cleanMeetingId,
+                    displayName: userIdentity.displayName,
+                    isHost: isHost,
+                    ...meetingData
+                };
+
+                setActiveMeeting(meetingConfig);
+
+                // Step 7: Handle joining logic based on role
+                if (isHost) {
+                    console.log('[Meeting] Host detected - preparing admin access');
+                    await handleHostJoin(meetingConfig, userIdentity);
+                } else {
+                    console.log('[Meeting] Participant detected - preparing participant access');
+                    await handleParticipantJoin(meetingConfig, meetingData);
+                }
+
             } catch (error) {
-                console.error("Supabase fetch error:", error);
-                showToast({ title: 'Error', message: 'Could not fetch meeting details.', type: 'error' });
+                console.error('[Meeting] Initialization failed:', error);
+                showToast({ 
+                    title: 'Connection Error', 
+                    message: 'Unable to connect to meeting. Please try again.', 
+                    type: 'error' 
+                });
                 navigate(role === 'admin' ? '/meeting' : '/home');
             } finally {
-                console.info('[Meeting] initializePage complete');
                 setIsPageLoading(false);
             }
         };
-        
-        initializePage();
-        // CHANGED: The dependency array now correctly re-runs when currentUser is set.
-    }, [meetingId, currentUser, navigate, userName]);
+
+        // Helper function for host joining with comprehensive error handling
+        const handleHostJoin = async (meetingConfig, userIdentity) => {
+            try {
+                console.log('[Meeting] Generating admin JWT for host...');
+                
+                // Add timeout for JWT creation
+                const jwtPromise = createAdminJwt({ 
+                    name: userIdentity.displayName, 
+                    email: userIdentity.currentUser?.email, 
+                    avatar: userIdentity.currentUser?.user_metadata?.avatar_url 
+                });
+                
+                const timeoutPromise = new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('JWT creation timeout')), 5000)
+                );
+                
+                const token = await Promise.race([jwtPromise, timeoutPromise]);
+                
+                setAdminJwt(token);
+                setCanJoinMeeting(true);
+                setIsWaitingForHost(false);
+                setIsJitsiLoading(true);
+                
+                console.log('[Meeting] Host setup complete - ready to join');
+                
+                // Host success timeout
+                setTimeout(() => {
+                    if (canJoinMeeting && isJitsiLoading) {
+                        console.log('[Meeting] Host join timeout - force clearing loading state');
+                        setIsJitsiLoading(false);
+                    }
+                }, 3000);
+                
+            } catch (error) {
+                console.error('[Meeting] Failed to setup host access:', error);
+                
+                const errorMessage = error.message.includes('timeout') 
+                    ? 'Host setup taking too long. Joining as participant.'
+                    : 'Failed to initialize host privileges. Joining as participant.';
+                
+                showToast({ 
+                    title: 'Host Setup Error', 
+                    message: errorMessage, 
+                    type: 'warning' 
+                });
+                
+                // Fallback to participant mode with retry mechanism
+                console.log('[Meeting] Falling back to participant mode');
+                setAdminJwt(undefined);
+                setCanJoinMeeting(true);
+                setIsWaitingForHost(false);
+                setIsJitsiLoading(true);
+                
+                // Participant fallback timeout
+                setTimeout(() => {
+                    if (canJoinMeeting && isJitsiLoading) {
+                        console.log('[Meeting] Fallback participant join timeout - force clearing loading state');
+                        setIsJitsiLoading(false);
+                    }
+                }, 4000);
+            }
+        };
+
+        // Helper function for participant joining with enhanced error handling
+        const handleParticipantJoin = async (meetingConfig, meetingData) => {
+            try {
+                setAdminJwt(undefined);
+                
+                // Always allow participants to join - remove the host waiting requirement
+                console.log('[Meeting] Allowing participant to join immediately');
+                setCanJoinMeeting(true);
+                setIsWaitingForHost(false);
+                setIsJitsiLoading(true);
+                
+                // Optional: You can still track if host is present for UI purposes
+                if (meetingData.host_participant_id) {
+                    console.log('[Meeting] Host is already present in meeting');
+                } else {
+                    console.log('[Meeting] Host not yet present, but allowing participant to join');
+                }
+                
+                // Set up success timeout to ensure we don't get stuck
+                setTimeout(() => {
+                    if (canJoinMeeting && isJitsiLoading) {
+                        console.log('[Meeting] Participant join timeout - force clearing loading state');
+                        setIsJitsiLoading(false);
+                    }
+                }, 4000);
+                
+            } catch (error) {
+                console.error('[Meeting] Participant join setup failed:', error);
+                showToast({
+                    title: 'Join Error',
+                    message: 'Unable to prepare meeting access. Retrying...',
+                    type: 'warning'
+                });
+                
+                // Retry after brief delay
+                setTimeout(() => {
+                    setCanJoinMeeting(true);
+                    setIsWaitingForHost(false);
+                    setIsJitsiLoading(true);
+                }, 1000);
+            }
+        };
+
+        initializeMeeting();
+    }, [meetingId, currentUser, userName, navigate, role, isWebinarMode, showToast]);
 
     // Load user's meetings for dashboard lists
     const fetchUserMeetings = useCallback(async () => {
@@ -1519,27 +1665,28 @@ const MeetingPage = () => {
         return () => { cancelled = true; };
     }, [activeMeeting, currentUser, fetchUserMeetings]);
 
-    // Fallback timeout to prevent loading screen from getting stuck
+    // Improved fallback timeout to prevent loading screen freeze
     useEffect(() => {
         if (!isJitsiLoading) return;
         
-        console.info('[Meeting] Starting fallback timer to clear loading state');
+        console.info('[Meeting] Starting enhanced fallback timer for Jitsi loading');
         
         // Check periodically if Jitsi iframe exists and is loaded
         const checkJitsiReady = () => {
             const jitsiIframe = document.querySelector('iframe[name*="jitsi"]') || 
                                document.querySelector('iframe[src*="meet.in8.com"]') ||
                                document.querySelector('.jitsi-meet iframe');
+            
             if (jitsiIframe) {
                 try {
                     // If iframe is loaded and accessible, clear loading state
                     if (jitsiIframe.contentWindow) {
-                        console.info('[Meeting] Jitsi iframe detected, clearing loading state');
+                        console.info('[Meeting] Jitsi iframe detected and accessible, clearing loading state');
                         setIsJitsiLoading(false);
                         return true;
                     }
                 } catch (e) {
-                    // Cross-origin iframe, but it exists, so likely loaded
+                    // Cross-origin iframe exists, likely loaded
                     console.info('[Meeting] Jitsi iframe exists (cross-origin), clearing loading state');
                     setIsJitsiLoading(false);
                     return true;
@@ -1548,29 +1695,53 @@ const MeetingPage = () => {
             return false;
         };
 
-        // Check immediately
+        // Immediate check
         if (checkJitsiReady()) return;
 
-        // Check periodically
+        // Periodic checks with decreasing frequency
+        let checkCount = 0;
         const checkInterval = setInterval(() => {
+            checkCount++;
+            
             if (checkJitsiReady()) {
                 clearInterval(checkInterval);
+                return;
+            }
+            
+            // Log progress every few checks
+            if (checkCount % 3 === 0) {
+                console.log(`[Meeting] Waiting for Jitsi to load... (${checkCount}s)`);
             }
         }, 1000);
 
-        // Fallback timeout
-        const fallbackTimer = setTimeout(() => {
-            console.warn('[Meeting] Fallback timeout reached, clearing loading state');
+        // Progressive fallback timeouts
+        const quickFallback = setTimeout(() => {
+            console.log('[Meeting] Quick fallback check - attempting to clear loading state');
+            if (canJoinMeeting) {
+                setIsJitsiLoading(false);
+            }
+        }, 3000); // 3 seconds quick check
+
+        const finalFallback = setTimeout(() => {
+            console.warn('[Meeting] Final fallback timeout reached, force clearing loading state');
             setIsJitsiLoading(false);
-            setIsPageLoading(false); // Also clear page loading
+            setIsPageLoading(false);
             clearInterval(checkInterval);
-        }, 8000); // 8 seconds fallback
+            
+            // Show helpful message if still having issues
+            showToast({
+                title: 'Meeting Loaded',
+                message: 'If you cannot see the meeting, please refresh the page.',
+                type: 'info'
+            });
+        }, 6000); // 6 seconds final fallback (reduced from 8)
         
         return () => {
-            clearTimeout(fallbackTimer);
+            clearTimeout(quickFallback);
+            clearTimeout(finalFallback);
             clearInterval(checkInterval);
         };
-    }, [isJitsiLoading]);
+    }, [isJitsiLoading, canJoinMeeting, showToast]);
 
     const openMeetingDetails = useCallback(async (id) => {
         setIsDetailsOpen(true);
@@ -1792,13 +1963,16 @@ useEffect(() => {
                 return;
             }
 
-            // Allow participants to proceed when host joins
+            // Enhanced participant handling when host joins
             if (!activeMeeting?.isHost) {
                 const hostJoined = !!data.host_participant_id;
                 if (hostJoined && !canJoinMeeting) {
+                    console.log('[Meeting] Host joined, enabling participant access');
                     setCanJoinMeeting(true);
                     setIsWaitingForHost(false);
                     setIsJitsiLoading(true);
+                } else if (hostJoined) {
+                    console.log('[Meeting] Host presence confirmed for participant');
                 }
             }
 

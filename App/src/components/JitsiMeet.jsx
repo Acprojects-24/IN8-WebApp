@@ -44,6 +44,11 @@ const JitsiMeet = React.memo(({
     const retriedRef = useRef(false);
     const [currentUserIsModerator, setCurrentUserIsModerator] = useState(isHost);
 
+    // Update moderator status when isHost prop changes
+    useEffect(() => {
+        setCurrentUserIsModerator(isHost);
+    }, [isHost]);
+
     useEffect(() => {
         if (!jitsiContainerRef.current) return;
         
@@ -77,7 +82,7 @@ const JitsiMeet = React.memo(({
 
             // Configure toolbar buttons based on webinar mode and user role
             const getToolbarButtons = () => {
-                if (webinarMode && !currentUserIsModerator) {
+                if (webinarMode && !isHost) {
                     // In webinar mode, participants don't see mic/camera controls at all
                     return [
                         'closedcaptions', 'fullscreen', 'hangup', 'chat', 'raisehand', 
@@ -96,6 +101,14 @@ const JitsiMeet = React.memo(({
                 ];
             };
 
+            console.log('[Jitsi] Initializing with options:', { 
+                webinarMode, 
+                isHost, 
+                displayName, 
+                roomName,
+                hasJWT: !!jwt 
+            });
+
             const options = {
                 roomName,
                 width: '100%',
@@ -112,31 +125,17 @@ const JitsiMeet = React.memo(({
                     enableClosePage: false,
                     disableInitialGUM: false,
                     requireDisplayName: false,
-                    // Webinar mode restrictions for participants
-                    ...(webinarMode && !currentUserIsModerator && {
-                        disableRemoteMute: true,
-                        disableInviteFunctions: true,
-                        disableShortcuts: true,
-                        disableProfile: true,
-                        disableRemoteControl: true,
-                        disableFilmstripAutohiding: true,
-                        // Participants can't change their own camera/mic in webinar mode
-                        disableCameraChange: true,
-                        disableMicrophoneChange: true,
-                        // Enable chat and hand raise for participants
-                        disableRaiseHand: false,
-                        disableChat: false,
+                    // Webinar mode restrictions for participants - simplified to prevent initialization issues
+                    ...(webinarMode && !isHost && {
                         // Force participants to start muted in webinar mode
                         startWithAudioMuted: true,
                         startWithVideoMuted: true,
-                        // Disable self-unmuting for participants
-                        disableSelfView: false,
-                        enableUserRolesBasedOnToken: false,
-                        remoteVideoMenu: {
-                            disableKick: true,
-                            disableGrantModerator: true,
-                            disablePrivateChat: false, // Allow private chat
-                        }
+                        // Basic restrictions
+                        disableInviteFunctions: true,
+                        disableRemoteMute: true,
+                        // Enable chat and hand raise for participants
+                        disableRaiseHand: false,
+                        disableChat: false,
                     }),
                     noiseSuppression: {
                         enabled: noiseSuppressionEnabled,
@@ -148,19 +147,10 @@ const JitsiMeet = React.memo(({
                     DISPLAY_WELCOME_PAGE_TOOLBAR_ADDITIONAL_CONTENT: false,
                     SHOW_CHROME_EXTENSION_BANNER: false,
                     TOOLBAR_BUTTONS: getToolbarButtons(),
-                    // Additional webinar mode restrictions for participants
-                    ...(webinarMode && !currentUserIsModerator && {
-                        DISABLE_FOCUS_INDICATOR: true,
-                        DISABLE_DOMINANT_SPEAKER_INDICATOR: true,
-                        DISABLE_TRANSCRIPTION_SUBTITLES: true,
-                        DISABLE_RINGING: true,
+                    // Additional webinar mode restrictions for participants - simplified
+                    ...(webinarMode && !isHost && {
                         HIDE_INVITE_MORE_HEADER: true,
                         DISABLE_JOIN_LEAVE_NOTIFICATIONS: true,
-                        DISABLE_PRESENCE_STATUS: true,
-                        HIDE_DEEP_LINKING_LOGO: true,
-                        SHOW_POWERED_BY: false,
-                        DISABLE_VIDEO_BACKGROUND: true,
-                        DISABLE_LOCAL_VIDEO_FLIP: true,
                     }),
                 },
             };
@@ -189,11 +179,17 @@ const JitsiMeet = React.memo(({
                     }
                 }
                 try {
-                    console.info('[Jitsi] Creating External API instance', { roomName });
+                    console.info('[Jitsi] Creating External API instance', { 
+                        roomName, 
+                        webinarMode,
+                        isHost,
+                        domain: effectiveDomain 
+                    });
                     apiRef.current = new window.JitsiMeetExternalAPI(effectiveDomain, options);
                     jitsiInstancePool.set(roomName, { api: apiRef.current });
+                    console.info('[Jitsi] API instance created successfully');
                 } catch (e) {
-                    console.error('Failed to create JitsiMeetExternalAPI:', e);
+                    console.error('Failed to create JitsiMeetExternalAPI:', e, { options });
                     showToast && showToast({ title: 'Embed blocked', message: 'The Jitsi server refused to be embedded. Check X-Frame-Options / CSP (frame-ancestors).', type: 'error' });
                     clearTimeout(failTimer);
                     return false;
